@@ -1,0 +1,3 @@
+[submodule "Assets/poeformats"]
+	path = Assets/poeformats
+	url = https://github.com/FloorBelow/poeformats.git
