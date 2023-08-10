@@ -4,17 +4,15 @@ using PoeFormats;
 using System.IO;
 
 [ExecuteInEditMode]
-public class Importer : MonoBehaviour
-{
+public class Importer : MonoBehaviour {
     public string gameFolder = @"E:\Extracted\PathOfExile\3.21.Crucible";
     public bool importSMD;
     public bool importAOC;
-    
+
 
     // Update is called once per frame
-    void Update()
-    {
-        if(importSMD) {
+    void Update() {
+        if (importSMD) {
             importSMD = false;
             string smdPath = EditorUtility.OpenFilePanel("Import smd", Path.Combine(gameFolder, "art/models/monsters"), "smd,fmt");
             Mesh m = ImportSMD(smdPath);
@@ -38,12 +36,13 @@ public class Importer : MonoBehaviour
     void ImportSmdAnimations(string smdPath, string astPath, string name) {
         Transform parent = new GameObject(name).transform;
         Mesh smd = ImportSMD(smdPath);
-        Debug.Log(smd.vertices.Length);
+        //Debug.Log(smd.vertices.Length);
         Ast ast = new Ast(astPath);
-        Debug.Log(ast.animations.Length);
+        //Debug.Log(ast.animations.Length);
 
         for (int i = 0; i < ast.animations.Length; i++) {
             ImportAnimation(smd, ast, i, Vector3.right * 200 * i, parent);
+            //break;
         }
     }
 
@@ -61,6 +60,9 @@ public class Importer : MonoBehaviour
             }
             mesh.bindposes = bindPoses;
         }
+
+        newObj.AddComponent<AnimationComponent>().SetData(bones, ast.animations[animation]);
+
 
         SkinnedMeshRenderer renderer = newObj.AddComponent<SkinnedMeshRenderer>();
         Material mat = Resources.Load<Material>("Default");
@@ -98,7 +100,7 @@ public class Importer : MonoBehaviour
 
         bones[boneIndex].localPosition = TranslationFromMatrix(ast.bones[boneIndex].transform);
         bones[boneIndex].localRotation = RotationFromMatrix(ast.bones[boneIndex].transform);
-
+        /*
         JankBoneComponent component = bones[boneIndex].gameObject.AddComponent<JankBoneComponent>();
         component.positionTimes = new float[ast.animations[animation].tracks[boneIndex].positionKeys.Length];
         component.positions = new Vector3[ast.animations[animation].tracks[boneIndex].positionKeys.Length];
@@ -122,7 +124,7 @@ public class Importer : MonoBehaviour
                 ast.animations[animation].tracks[boneIndex].rotationKeys[i][4]
             );
         }
-
+        */
         if (ast.bones[boneIndex].sibling != 255) ImportBone(bones, ast, ast.bones[boneIndex].sibling, animation, parent);
         if (ast.bones[boneIndex].child != 255) ImportBone(bones, ast, ast.bones[boneIndex].child, animation, bones[boneIndex]);
     }
