@@ -1,16 +1,20 @@
 using PoeFormats;
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Reflection.Emit;
-using Unity.Collections;
-using Unity.Mathematics;
+using System.IO;
 using UnityEngine;
-using static AnimationComponent;
 
 public class AnimationComponent : MonoBehaviour
 {
+    public bool screenshotMode;
+    public string screenName;
+    public int screenSize;
+    RenderTexture screenRT;
+    Texture2D outTexture;
+    Camera cam;
+    bool destroyScreenshot;
+    int screenCount;
+
     public Transform[] bones;
 
     public List<KeySet> keySets;
@@ -20,7 +24,7 @@ public class AnimationComponent : MonoBehaviour
     int[] positionKeySetCurrentKeyframes;
 
 
-    public void SetData(Transform[] bones, AstAnimation animation) {
+    public void SetData(Transform[] bones, AstAnimation animation, string screenName = null, int screenSize = 2048) {
         this.bones = bones;
         maxTime = animation.tracks[0].positionKeys[animation.tracks[0].positionKeys.Length - 1][0];
 
@@ -82,17 +86,35 @@ public class AnimationComponent : MonoBehaviour
             }
         }
 
+        if(screenName != null) {
+            screenshotMode = true;
+            this.screenName = screenName;
+            this.screenSize = screenSize;
+            destroyScreenshot = false;
+            screenCount = 0;
+        }
+
     }
 
     public void Update() {
-        time = time + (Time.deltaTime * 30);
-        if (time >= maxTime) time -= maxTime;
+        if(screenshotMode) {
+            time = screenCount / 2.0f;
+            if(time >= maxTime) {
+                destroyScreenshot = true;
+                time = 0;
+            }
+        } else {
+            time = time + (Time.deltaTime * 30);
+            if (time >= maxTime) time -= maxTime;
+
+        }
+
 
         for (int ksIdx = 0; ksIdx < keySets.Count; ksIdx++) {
             KeySet keyset = keySets[ksIdx];
 
             int currentKey = 0;
-            for (int keyframe = 0; keyframe < keyset.times.Length; keyframe++) {
+            for (int keyframe = 0; keyframe < keyset.times.Length - 1; keyframe++) {
                 if (keyset.times[keyframe + 1] > time) break;
                 currentKey++;
             }
@@ -112,6 +134,27 @@ public class AnimationComponent : MonoBehaviour
                     lerpValue);
             }
             
+        }
+
+        if(screenshotMode) {
+            if(screenCount == 0) {
+                cam = Camera.main;
+                screenRT = new RenderTexture(screenSize, screenSize, 0, RenderTextureFormat.ARGB32);
+                outTexture = new Texture2D(screenSize, screenSize, TextureFormat.ARGB32, false);
+                cam.targetTexture = screenRT;
+            } else {
+                cam.Render();
+                RenderTexture.active = cam.targetTexture;
+                outTexture.ReadPixels(new Rect(0, 0, screenSize, screenSize), 0, 0, false);
+                outTexture.Apply();
+                byte[] png = outTexture.EncodeToPNG();
+                File.WriteAllBytes($@"F:\Anna\Desktop\test\{screenName}_{screenCount}.png", png);
+            }
+            screenCount++;
+            if(destroyScreenshot) {
+                cam.targetTexture = null;
+                Destroy(gameObject);
+            }
         }
     }
 

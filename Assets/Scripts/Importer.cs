@@ -8,6 +8,8 @@ public class Importer : MonoBehaviour {
     public string gameFolder = @"E:\Extracted\PathOfExile\3.21.Crucible";
     public bool importSMD;
     public bool importAOC;
+    public int importMonsterIdx;
+    public bool importMonster;
 
 
     // Update is called once per frame
@@ -29,8 +31,40 @@ public class Importer : MonoBehaviour {
             Sm sm = new Sm(Path.Combine(gameFolder, aoc.skin));
             string smdPath = Path.Combine(gameFolder, sm.smd);
             ImportSmdAnimations(smdPath, astPath, Path.GetFileName(aocPath));
+        } else if (importMonster) {
+            importMonster = false;
+            RenderMonsterIdle(importMonsterIdx);
         }
 
+    }
+
+    void RenderMonsterIdle(int idx) {
+        using(TextReader reader = new StreamReader(File.OpenRead(@"E:\Anna\Anna\Visual Studio\Archbestiary\bin\Debug\net6.0\monsterart.txt"))) {
+            for(int i = 0; i < idx - 1; i++) {
+                reader.ReadLine();
+            }
+            string[] words = reader.ReadLine().Split('@');
+            Act act = new Act(Path.Combine(gameFolder, words[3]));
+            if (act.animations.ContainsKey("Idle")) {
+                Aoc aoc = new Aoc(Path.Combine(gameFolder, words[4]));
+                string astPath = Path.Combine(gameFolder, aoc.skeleton);
+                Ast ast = new Ast(astPath);
+                int animationIndex = -1;
+                for(int i = 0; i < ast.animations.Length; i++) {
+                    if (ast.animations[i].name == act.animations["Idle"]) {
+                        animationIndex = i;
+                        break;
+                    }
+                }
+                if(animationIndex != -1) {
+                    Sm sm = new Sm(Path.Combine(gameFolder, aoc.skin));
+                    string smdPath = Path.Combine(gameFolder, sm.smd);
+                    Mesh mesh = ImportSMD(smdPath);
+
+                    ImportAnimation(mesh, ast, animationIndex, Vector3.zero, null, words[1].Replace('/','_'));
+                }
+            }
+        }
     }
 
     void ImportSmdAnimations(string smdPath, string astPath, string name) {
@@ -47,7 +81,7 @@ public class Importer : MonoBehaviour {
     }
 
 
-    void ImportAnimation(Mesh mesh, Ast ast, int animation, Vector3 pos, Transform parent) {
+    void ImportAnimation(Mesh mesh, Ast ast, int animation, Vector3 pos, Transform parent = null, string screenName = null) {
         Transform[] bones = new Transform[ast.bones.Length];
 
         GameObject newObj = new GameObject(ast.animations[animation].name);
@@ -61,7 +95,7 @@ public class Importer : MonoBehaviour {
             mesh.bindposes = bindPoses;
         }
 
-        newObj.AddComponent<AnimationComponent>().SetData(bones, ast.animations[animation]);
+        newObj.AddComponent<AnimationComponent>().SetData(bones, ast.animations[animation], screenName);
 
 
         SkinnedMeshRenderer renderer = newObj.AddComponent<SkinnedMeshRenderer>();
@@ -74,7 +108,7 @@ public class Importer : MonoBehaviour {
 
         newObj.transform.Translate(pos);
         newObj.transform.Rotate(new Vector3(90, 0, 0));
-        newObj.transform.SetParent(parent);
+        if(parent != null) newObj.transform.SetParent(parent);
     }
 
     Vector3 TranslationFromMatrix(float[] transform) {
