@@ -9,7 +9,9 @@ public class Importer : MonoBehaviour {
     public bool importSMD;
     public bool importAOC;
     public int importMonsterIdx;
+    public string importMonsterAction;
     public bool importMonster;
+    public bool importSmdAst;
 
 
     // Update is called once per frame
@@ -34,24 +36,29 @@ public class Importer : MonoBehaviour {
         } else if (importMonster) {
             importMonster = false;
             RenderMonsterIdle(importMonsterIdx);
+        } else if (importSmdAst) {
+            importSmdAst = false;
+            string smdPath = EditorUtility.OpenFilePanel("Import smd", @"F:\Extracted\PathOfExile\3.22.Ancestor\monsters\genericbiped\bipedmedium\modelvariants", "smd");
+            string astPath = EditorUtility.OpenFilePanel("Import ast", @"F:\Extracted\PathOfExile\3.22.Ancestor\monsters\genericbiped\bipedmedium\animations", "ast");
+            ImportSmdAnimations(smdPath, astPath, Path.GetFileName(astPath));
         }
 
     }
 
     void RenderMonsterIdle(int idx) {
-        using(TextReader reader = new StreamReader(File.OpenRead(@"E:\Anna\Anna\Visual Studio\Archbestiary\bin\Debug\net6.0\monsterart.txt"))) {
+        using(TextReader reader = new StreamReader(File.OpenRead(@"E:\A\A\Visual Studio\Archbestiary\bin\Debug\net6.0\monsterart.txt"))) {
             for(int i = 0; i < idx - 1; i++) {
                 reader.ReadLine();
             }
             string[] words = reader.ReadLine().Split('@');
             Act act = new Act(Path.Combine(gameFolder, words[3]));
-            if (act.animations.ContainsKey("Idle")) {
+            if (act.animations.ContainsKey(importMonsterAction)) {
                 Aoc aoc = new Aoc(Path.Combine(gameFolder, words[4]));
                 string astPath = Path.Combine(gameFolder, aoc.skeleton);
                 Ast ast = new Ast(astPath);
                 int animationIndex = -1;
                 for(int i = 0; i < ast.animations.Length; i++) {
-                    if (ast.animations[i].name == act.animations["Idle"]) {
+                    if (ast.animations[i].name == act.animations[importMonsterAction]) {
                         animationIndex = i;
                         break;
                     }
@@ -61,7 +68,7 @@ public class Importer : MonoBehaviour {
                     string smdPath = Path.Combine(gameFolder, sm.smd);
                     Mesh mesh = ImportSMD(smdPath);
 
-                    ImportAnimation(mesh, ast, animationIndex, Vector3.zero, null, words[1].Replace('/','_'));
+                    ImportAnimation(mesh, ast, animationIndex, Vector3.zero, null, words[1].Replace('/','_') + '_' + importMonsterAction);
                 }
             }
         }

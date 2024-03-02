@@ -2,29 +2,33 @@ using PoeFormats;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using UnityEditor;
 using UnityEngine;
 
 public class AnimationComponent : MonoBehaviour
 {
-    public bool screenshotMode;
-    public string screenName;
-    public int screenSize;
+    bool screenshotMode;
+    string screenName;
+    int screenSize;
     RenderTexture screenRT;
     Texture2D outTexture;
     Camera cam;
     bool destroyScreenshot;
     int screenCount;
 
-    public Transform[] bones;
+    [SerializeField]
+    Transform[] bones;
 
-    public List<KeySet> keySets;
+    [SerializeField]
+    List<KeySet> keySets;
 
-    public float maxTime;
-    public float time;
-    int[] positionKeySetCurrentKeyframes;
+    [SerializeField]
+    float maxTime;
+
+    float time;
 
 
-    public void SetData(Transform[] bones, AstAnimation animation, string screenName = null, int screenSize = 2048) {
+    public void SetData(Transform[] bones, AstAnimation animation, string screenName = null, int screenSize = 512) {
         this.bones = bones;
         maxTime = animation.tracks[0].positionKeys[animation.tracks[0].positionKeys.Length - 1][0];
 
@@ -148,10 +152,20 @@ public class AnimationComponent : MonoBehaviour
                 outTexture.ReadPixels(new Rect(0, 0, screenSize, screenSize), 0, 0, false);
                 outTexture.Apply();
                 byte[] png = outTexture.EncodeToPNG();
-                File.WriteAllBytes($@"F:\Anna\Desktop\test\{screenName}_{screenCount}.png", png);
+                File.WriteAllBytes($@"D:\testscreen\{screenCount}.png", png);
             }
             screenCount++;
             if(destroyScreenshot) {
+                string ffmpegText = $"-y -framerate 60 -i \"D:\\testscreen\\%d.png\" -c:v libsvtav1 -vf scale=128:128 -crf 32 -preset 0 D:\\testscreen\\{screenName}.avif";
+                using (System.Diagnostics.Process process = new System.Diagnostics.Process()) {
+                    //process.StartInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden;
+                    process.StartInfo.FileName = @"D:\Programs\ffmpeg-2024-02-29-git-4a134eb14a-full_build\bin\ffmpeg.exe";
+                    process.StartInfo.Arguments = ffmpegText;
+                    process.Start();
+                    process.WaitForExit();
+                }
+                foreach(string file in Directory.EnumerateFiles(@"D:\testscreen", "*.png")) File.Delete(file);
+
                 cam.targetTexture = null;
                 Destroy(gameObject);
             }
