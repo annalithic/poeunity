@@ -4,6 +4,10 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
+using FFMpegCore;
+using FFMpegCore.Enums;
+using System.Linq;
+using UnityEngine.UIElements;
 
 public class AnimationComponent : MonoBehaviour
 {
@@ -14,6 +18,7 @@ public class AnimationComponent : MonoBehaviour
         render,
         renderFinish
     };
+
 
     Mode mode;
     string screenName;
@@ -34,10 +39,18 @@ public class AnimationComponent : MonoBehaviour
     [SerializeField]
     float maxTime;
 
+    [SerializeField]
     float time;
 
-    Bounds bounds;
+    [SerializeField]
+    float speed;
 
+
+    bool testNoUpdate;
+
+    Mesh bakeMesh;
+    List<Vector3> bakeVerts;
+    float uMin; float uMax; float vMin; float vMax;
 
     public void SetData(Transform[] bones, SkinnedMeshRenderer renderer, AstAnimation animation, string screenName = null, int screenSize = 512) {
         this.renderer = renderer;
@@ -46,7 +59,7 @@ public class AnimationComponent : MonoBehaviour
 
         keySets = new List<KeySet>();
 
-        for(int bone = 0; bone < animation.tracks.Length; bone++) {
+        for(int bone = 1; bone < animation.tracks.Length; bone++) {
             int keysetToAddBoneTo = keySets.Count;
             if (animation.tracks[bone].bone != bone) Debug.LogError("track/bone mismatch");
             for(int set = 0; set < keySets.Count; set++) {
@@ -72,7 +85,7 @@ public class AnimationComponent : MonoBehaviour
             }
         }
 
-        for (int bone = 0; bone < animation.tracks.Length; bone++) {
+        for (int bone = 1; bone < animation.tracks.Length; bone++) {
             int keysetToAddBoneTo = keySets.Count;
             if (animation.tracks[bone].bone != bone) Debug.LogError("track/bone mismatch");
             for (int set = 0; set < keySets.Count; set++) {
@@ -104,24 +117,37 @@ public class AnimationComponent : MonoBehaviour
 
         if(screenName != null) {
             mode = Mode.bounds;
-            bounds = new Bounds();
             this.screenName = screenName;
             this.screenSize = screenSize;
             screenCount = 0;
+            cam = Camera.main;
+            cam.transform.localPosition = Vector3.zero;
+            cam.orthographicSize = 1;
+
+            bakeMesh = new Mesh();
+            bakeVerts = new List<Vector3>(renderer.sharedMesh.vertexCount);
+            //for (int i = 0; i < renderer.sharedMesh.vertexCount; i++) bakeVerts.Add(Vector3.zero);
+            uMin = float.MaxValue; uMax = float.MinValue;
+            vMin = float.MaxValue; vMax = float.MinValue;
         }
 
     }
 
+    Vector3 AxisCorrect(Vector3 v) {
+        return new Vector3(v.x, v.z * -1, v.y);
+    }
+
     public void Update() {
+        if (testNoUpdate) return;
+
         if(mode == Mode.bounds || mode == Mode.render) {
             time = screenCount / 2.0f;
             if (time >= maxTime) {
-                screenCount = 0;
                 time = 0;
                 mode = (Mode)((int)mode + 1);
             }
         } else {
-            time = time + (Time.deltaTime * 30);
+            time = time + (Time.deltaTime * speed);
             if (time >= maxTime) time -= maxTime;
         }
 
@@ -152,39 +178,34 @@ public class AnimationComponent : MonoBehaviour
             
         }
 
-        
-
         if (mode == Mode.bounds) {
-            bounds.Encapsulate(renderer.localBounds);
+            renderer.BakeMesh(bakeMesh);
+            bakeMesh.GetVertices(bakeVerts);
+
+            for (int i = 0; i < bakeMesh.vertexCount; i++) {
+                var pos = cam.WorldToViewportPoint(AxisCorrect(bakeVerts[i]));
+                if (pos.x > uMax) uMax = pos.x;
+                if (pos.x < uMin) uMin = pos.x;
+                if (pos.y < vMin) vMin = pos.y;
+                if (pos.y > vMax) vMax = pos.y;
+            }
+
+            //if (screenCount > 0) bounds.Encapsulate(renderer.localBounds);
             screenCount++;
         } else if (mode == Mode.boundsFinish) {
-            bounds.Encapsulate(renderer.localBounds);
 
-            //axis magic
-            bounds.center = new Vector3(bounds.center.x, bounds.center.z * -1, bounds.center.y);
-            bounds.extents = new Vector3(bounds.extents.x, bounds.extents.z * -1, bounds.extents.y);
+            Debug.Log($"({uMin},{vMin}) to ({uMax},{vMax})");
 
+            cam.transform.localPosition = new Vector3(uMax + uMin, vMax + vMin, -500);
+            cam.orthographicSize = MathF.Max(uMax - uMin, vMax - vMin) * 128 / 124;
 
-            //set camera distance
-            cam = Camera.main;
-            float radius = bounds.extents.magnitude;
-
-            Transform boundsCube = Instantiate(Resources.Load<GameObject>("Cube")).transform;
-            boundsCube.position = bounds.center;
-            boundsCube.localScale = bounds.size;
-
-            float angle = cam.fieldOfView / 2 * Mathf.Deg2Rad;
-            float dist = radius / Mathf.Sin(angle);
-
-            Debug.Log($"radius {radius}, angle {angle}, dist {dist}");
-            cam.transform.position = bounds.center + cam.transform.forward * (dist * -1);
+            screenCount = 0;
 
             screenRT = new RenderTexture(screenSize, screenSize, 0, RenderTextureFormat.ARGB32);
             outTexture = new Texture2D(screenSize, screenSize, TextureFormat.ARGB32, false);
             cam.targetTexture = screenRT;
 
             mode = Mode.render;
-
 
         } if(mode == Mode.render) {
             cam.Render();
@@ -196,6 +217,21 @@ public class AnimationComponent : MonoBehaviour
             screenCount++;
 
         } else if (mode == Mode.renderFinish) {
+
+            string[] frames = new string[screenCount];
+            for (int i = 0; i < frames.Length; i++) frames[i] = $@"D:\testscreen\{i}.png";
+
+            FFMpegArguments
+                .FromConcatInput(frames, options => options.WithFramerate(60))
+                .OutputToFile(@$"D:\testscreen\{screenName}.avif", true, options => options
+                    .WithVideoCodec("libsvtav1")
+                    .Resize(256, 256)
+                    //.WithVideoFilters(filterOptions => filterOptions.Scale(128, 128))
+                    .WithConstantRateFactor(32)
+                    //.WithSpeedPreset(Speed.Faster)
+                    .WithFastStart()).ProcessSynchronously();
+                
+            /*
             string ffmpegText = $"-y -framerate 60 -i \"D:\\testscreen\\%d.png\" -c:v libsvtav1 -vf scale=128:128 -crf 32 -preset 5 D:\\testscreen\\{screenName}.avif";
             using (System.Diagnostics.Process process = new System.Diagnostics.Process()) {
                 process.StartInfo.FileName = @"D:\Programs\ffmpeg-2024-02-29-git-4a134eb14a-full_build\bin\ffmpeg.exe";
@@ -203,10 +239,13 @@ public class AnimationComponent : MonoBehaviour
                 process.Start();
                 process.WaitForExit();
             }
-            foreach (string file in Directory.EnumerateFiles(@"D:\testscreen", "*.png")) File.Delete(file);
+            */
+            //foreach (string file in Directory.EnumerateFiles(@"D:\testscreen", "*.png")) File.Delete(file);
             cam.targetTexture = null;
             Destroy(gameObject);
         }
+
+        //testNoUpdate = true;
     }
 
     [Serializable]

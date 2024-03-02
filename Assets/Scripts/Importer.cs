@@ -103,9 +103,8 @@ public class Importer : MonoBehaviour {
         }
 
         SkinnedMeshRenderer renderer = newObj.AddComponent<SkinnedMeshRenderer>();
-        renderer.updateWhenOffscreen = true;
+        //renderer.updateWhenOffscreen = true;
 
-        newObj.AddComponent<AnimationComponent>().SetData(bones, renderer, ast.animations[animation], screenName);
 
 
         Material mat = Resources.Load<Material>("Default");
@@ -114,6 +113,8 @@ public class Importer : MonoBehaviour {
         renderer.bones = bones;
         renderer.rootBone = bones[0];
         renderer.sharedMesh = mesh;
+
+        newObj.AddComponent<AnimationComponent>().SetData(bones, renderer, ast.animations[animation], screenName);
 
         newObj.transform.Translate(pos);
         newObj.transform.Rotate(new Vector3(90, 0, 0));
