@@ -7,14 +7,23 @@ using UnityEngine;
 
 public class AnimationComponent : MonoBehaviour
 {
-    bool screenshotMode;
+    enum Mode {
+        noScreen,
+        bounds,
+        boundsFinish,
+        render,
+        renderFinish
+    };
+
+    Mode mode;
     string screenName;
     int screenSize;
     RenderTexture screenRT;
     Texture2D outTexture;
     Camera cam;
-    bool destroyScreenshot;
     int screenCount;
+
+    SkinnedMeshRenderer renderer;
 
     [SerializeField]
     Transform[] bones;
@@ -27,8 +36,11 @@ public class AnimationComponent : MonoBehaviour
 
     float time;
 
+    Bounds bounds;
 
-    public void SetData(Transform[] bones, AstAnimation animation, string screenName = null, int screenSize = 512) {
+
+    public void SetData(Transform[] bones, SkinnedMeshRenderer renderer, AstAnimation animation, string screenName = null, int screenSize = 512) {
+        this.renderer = renderer;
         this.bones = bones;
         maxTime = animation.tracks[0].positionKeys[animation.tracks[0].positionKeys.Length - 1][0];
 
@@ -91,26 +103,26 @@ public class AnimationComponent : MonoBehaviour
         }
 
         if(screenName != null) {
-            screenshotMode = true;
+            mode = Mode.bounds;
+            bounds = new Bounds();
             this.screenName = screenName;
             this.screenSize = screenSize;
-            destroyScreenshot = false;
             screenCount = 0;
         }
 
     }
 
     public void Update() {
-        if(screenshotMode) {
+        if(mode == Mode.bounds || mode == Mode.render) {
             time = screenCount / 2.0f;
-            if(time >= maxTime) {
-                destroyScreenshot = true;
+            if (time >= maxTime) {
+                screenCount = 0;
                 time = 0;
+                mode = (Mode)((int)mode + 1);
             }
         } else {
             time = time + (Time.deltaTime * 30);
             if (time >= maxTime) time -= maxTime;
-
         }
 
 
@@ -140,35 +152,60 @@ public class AnimationComponent : MonoBehaviour
             
         }
 
-        if(screenshotMode) {
-            if(screenCount == 0) {
-                cam = Camera.main;
-                screenRT = new RenderTexture(screenSize, screenSize, 0, RenderTextureFormat.ARGB32);
-                outTexture = new Texture2D(screenSize, screenSize, TextureFormat.ARGB32, false);
-                cam.targetTexture = screenRT;
-            } else {
-                cam.Render();
-                RenderTexture.active = cam.targetTexture;
-                outTexture.ReadPixels(new Rect(0, 0, screenSize, screenSize), 0, 0, false);
-                outTexture.Apply();
-                byte[] png = outTexture.EncodeToPNG();
-                File.WriteAllBytes($@"D:\testscreen\{screenCount}.png", png);
-            }
-            screenCount++;
-            if(destroyScreenshot) {
-                string ffmpegText = $"-y -framerate 60 -i \"D:\\testscreen\\%d.png\" -c:v libsvtav1 -vf scale=128:128 -crf 32 -preset 0 D:\\testscreen\\{screenName}.avif";
-                using (System.Diagnostics.Process process = new System.Diagnostics.Process()) {
-                    //process.StartInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden;
-                    process.StartInfo.FileName = @"D:\Programs\ffmpeg-2024-02-29-git-4a134eb14a-full_build\bin\ffmpeg.exe";
-                    process.StartInfo.Arguments = ffmpegText;
-                    process.Start();
-                    process.WaitForExit();
-                }
-                foreach(string file in Directory.EnumerateFiles(@"D:\testscreen", "*.png")) File.Delete(file);
+        
 
-                cam.targetTexture = null;
-                Destroy(gameObject);
+        if (mode == Mode.bounds) {
+            bounds.Encapsulate(renderer.localBounds);
+            screenCount++;
+        } else if (mode == Mode.boundsFinish) {
+            bounds.Encapsulate(renderer.localBounds);
+
+            //axis magic
+            bounds.center = new Vector3(bounds.center.x, bounds.center.z * -1, bounds.center.y);
+            bounds.extents = new Vector3(bounds.extents.x, bounds.extents.z * -1, bounds.extents.y);
+
+
+            //set camera distance
+            cam = Camera.main;
+            float radius = bounds.extents.magnitude;
+
+            Transform boundsCube = Instantiate(Resources.Load<GameObject>("Cube")).transform;
+            boundsCube.position = bounds.center;
+            boundsCube.localScale = bounds.size;
+
+            float angle = cam.fieldOfView / 2 * Mathf.Deg2Rad;
+            float dist = radius / Mathf.Sin(angle);
+
+            Debug.Log($"radius {radius}, angle {angle}, dist {dist}");
+            cam.transform.position = bounds.center + cam.transform.forward * (dist * -1);
+
+            screenRT = new RenderTexture(screenSize, screenSize, 0, RenderTextureFormat.ARGB32);
+            outTexture = new Texture2D(screenSize, screenSize, TextureFormat.ARGB32, false);
+            cam.targetTexture = screenRT;
+
+            mode = Mode.render;
+
+
+        } if(mode == Mode.render) {
+            cam.Render();
+            RenderTexture.active = cam.targetTexture;
+            outTexture.ReadPixels(new Rect(0, 0, screenSize, screenSize), 0, 0, false);
+            outTexture.Apply();
+            byte[] png = outTexture.EncodeToPNG();
+            File.WriteAllBytes($@"D:\testscreen\{screenCount}.png", png);
+            screenCount++;
+
+        } else if (mode == Mode.renderFinish) {
+            string ffmpegText = $"-y -framerate 60 -i \"D:\\testscreen\\%d.png\" -c:v libsvtav1 -vf scale=128:128 -crf 32 -preset 5 D:\\testscreen\\{screenName}.avif";
+            using (System.Diagnostics.Process process = new System.Diagnostics.Process()) {
+                process.StartInfo.FileName = @"D:\Programs\ffmpeg-2024-02-29-git-4a134eb14a-full_build\bin\ffmpeg.exe";
+                process.StartInfo.Arguments = ffmpegText;
+                process.Start();
+                process.WaitForExit();
             }
+            foreach (string file in Directory.EnumerateFiles(@"D:\testscreen", "*.png")) File.Delete(file);
+            cam.targetTexture = null;
+            Destroy(gameObject);
         }
     }
 

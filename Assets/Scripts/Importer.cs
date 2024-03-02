@@ -102,10 +102,12 @@ public class Importer : MonoBehaviour {
             mesh.bindposes = bindPoses;
         }
 
-        newObj.AddComponent<AnimationComponent>().SetData(bones, ast.animations[animation], screenName);
-
-
         SkinnedMeshRenderer renderer = newObj.AddComponent<SkinnedMeshRenderer>();
+        renderer.updateWhenOffscreen = true;
+
+        newObj.AddComponent<AnimationComponent>().SetData(bones, renderer, ast.animations[animation], screenName);
+
+
         Material mat = Resources.Load<Material>("Default");
         renderer.sharedMaterial = mat;
 
