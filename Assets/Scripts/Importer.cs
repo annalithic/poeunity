@@ -2,6 +2,8 @@ using UnityEngine;
 using UnityEditor;
 using PoeFormats;
 using System.IO;
+using System.Collections.Generic;
+using UnityDds;
 
 [ExecuteInEditMode]
 public class Importer : MonoBehaviour {
@@ -12,6 +14,8 @@ public class Importer : MonoBehaviour {
     public string importMonsterAction;
     public bool importMonster;
     public bool importSmdAst;
+    public int screenSize;
+    public int crf;
 
 
     // Update is called once per frame
@@ -66,9 +70,37 @@ public class Importer : MonoBehaviour {
                 if(animationIndex != -1) {
                     Sm sm = new Sm(Path.Combine(gameFolder, aoc.skin));
                     string smdPath = Path.Combine(gameFolder, sm.smd);
-                    Mesh mesh = ImportSMD(smdPath);
+                    Mesh mesh = ImportSMD(smdPath, true);
+                    Material[] materials = new Material[sm.materials.Length];
+                    List<Material> materialIndices = new List<Material>();
+                    int submeshCounter = 0;
 
-                    ImportAnimation(mesh, ast, animationIndex, Vector3.zero, null, words[1].Replace('/','_') + '_' + importMonsterAction);
+                    for(int i = 0; i < materials.Length; i++) {
+                        string tex = null;
+                        Mat mat = new Mat(Path.Combine(gameFolder, sm.materials[i]));
+                        foreach(var graphInstance in mat.graphs) {
+                            Debug.Log(graphInstance.parent);
+                            if (graphInstance.baseTex != null) {
+                                Debug.Log(Path.Combine(gameFolder, graphInstance.baseTex));
+                                tex = graphInstance.baseTex;
+                                break;
+                            }
+                        }
+                        Material unityMat = Instantiate(Resources.Load<Material>("Default"));
+                        unityMat.name = Path.GetFileNameWithoutExtension(sm.materials[i]);
+                        if(tex != null) {
+                            Debug.Log(Path.Combine(gameFolder, tex));
+                            Texture2D unityTex = DdsTextureLoader.LoadTexture(Path.Combine(gameFolder, tex));
+                            unityMat.mainTexture = unityTex;
+                        }
+                        for(int j = 0; j < sm.materialCounts[i]; j++) {
+                            materialIndices.Add(unityMat);
+                        }
+                    }
+                    
+                    
+
+                    ImportAnimation(mesh, ast, animationIndex, Vector3.zero, null, words[1].Replace('/','_') + '_' + importMonsterAction, materialIndices.ToArray());
                 }
             }
         }
@@ -88,7 +120,7 @@ public class Importer : MonoBehaviour {
     }
 
 
-    void ImportAnimation(Mesh mesh, Ast ast, int animation, Vector3 pos, Transform parent = null, string screenName = null) {
+    void ImportAnimation(Mesh mesh, Ast ast, int animation, Vector3 pos, Transform parent = null, string screenName = null, Material[] materials = null) {
         Transform[] bones = new Transform[ast.bones.Length];
 
         GameObject newObj = new GameObject(ast.animations[animation].name);
@@ -106,15 +138,18 @@ public class Importer : MonoBehaviour {
         //renderer.updateWhenOffscreen = true;
 
 
-
-        Material mat = Resources.Load<Material>("Default");
-        renderer.sharedMaterial = mat;
+        if(materials == null) {
+            Material mat = Resources.Load<Material>("Default");
+            renderer.sharedMaterial = mat;
+        } else {
+            renderer.sharedMaterials = materials;
+        }
 
         renderer.bones = bones;
         renderer.rootBone = bones[0];
         renderer.sharedMesh = mesh;
 
-        newObj.AddComponent<AnimationComponent>().SetData(bones, renderer, ast.animations[animation], screenName);
+        newObj.AddComponent<AnimationComponent>().SetData(bones, renderer, ast.animations[animation], screenName, screenSize, crf);
 
         newObj.transform.Translate(pos);
         newObj.transform.Rotate(new Vector3(90, 0, 0));
@@ -174,7 +209,7 @@ public class Importer : MonoBehaviour {
     }
 
 
-    Mesh ImportSMD(string path) {
+    Mesh ImportSMD(string path, bool useSubmeshes = false) {
         Smd smd = new Smd(path);
         if (smd.model.meshes[0].idx.Length == 0 || smd.model.meshes[0].vertCount == 0) return null;
         Vector3[] verts = new Vector3[smd.model.meshes[0].vertCount];
@@ -197,6 +232,16 @@ public class Importer : MonoBehaviour {
         mesh.vertices = verts;
         mesh.uv = uvs;
         mesh.triangles = tris;
+
+        if(useSubmeshes) {
+            mesh.subMeshCount = smd.model.meshes[0].submeshOffsets.Length;
+            for(int i = 0; i < mesh.subMeshCount; i++) {
+                mesh.SetSubMesh(i, new UnityEngine.Rendering.SubMeshDescriptor(
+                    smd.model.meshes[0].submeshOffsets[i],
+                    smd.model.meshes[0].submeshSizes[i]));
+            }
+        }
+
         mesh.RecalculateNormals();
 
         BoneWeight[] weights = new BoneWeight[smd.model.meshes[0].vertCount];

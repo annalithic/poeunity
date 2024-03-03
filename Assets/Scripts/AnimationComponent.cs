@@ -52,9 +52,12 @@ public class AnimationComponent : MonoBehaviour
     List<Vector3> bakeVerts;
     float uMin; float uMax; float vMin; float vMax;
 
-    public void SetData(Transform[] bones, SkinnedMeshRenderer renderer, AstAnimation animation, string screenName = null, int screenSize = 512) {
+    int crf;
+
+    public void SetData(Transform[] bones, SkinnedMeshRenderer renderer, AstAnimation animation, string screenName = null, int screenSize = 512, int crf = 32) {
         this.renderer = renderer;
         this.bones = bones;
+        this.crf = crf;
         maxTime = animation.tracks[0].positionKeys[animation.tracks[0].positionKeys.Length - 1][0];
 
         keySets = new List<KeySet>();
@@ -225,9 +228,9 @@ public class AnimationComponent : MonoBehaviour
                 .FromConcatInput(frames, options => options.WithFramerate(60))
                 .OutputToFile(@$"D:\testscreen\{screenName}.avif", true, options => options
                     .WithVideoCodec("libsvtav1")
-                    .Resize(256, 256)
+                    .Resize(128, 128)
                     //.WithVideoFilters(filterOptions => filterOptions.Scale(128, 128))
-                    .WithConstantRateFactor(32)
+                    .WithConstantRateFactor(crf)
                     //.WithSpeedPreset(Speed.Faster)
                     .WithFastStart()).ProcessSynchronously();
                 
@@ -240,7 +243,7 @@ public class AnimationComponent : MonoBehaviour
                 process.WaitForExit();
             }
             */
-            //foreach (string file in Directory.EnumerateFiles(@"D:\testscreen", "*.png")) File.Delete(file);
+            foreach (string file in Directory.EnumerateFiles(@"D:\testscreen", "*.png")) File.Delete(file);
             cam.targetTexture = null;
             Destroy(gameObject);
         }
