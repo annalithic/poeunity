@@ -6,8 +6,11 @@ using UnityEditor;
 using UnityEngine;
 using FFMpegCore;
 using FFMpegCore.Enums;
-using System.Linq;
-using UnityEngine.UIElements;
+using FFMpegCore.Pipes;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Data;
+
 
 public class AnimationComponent : MonoBehaviour
 {
@@ -51,6 +54,8 @@ public class AnimationComponent : MonoBehaviour
     Mesh bakeMesh;
     List<Vector3> bakeVerts;
     float uMin; float uMax; float vMin; float vMax;
+
+    List<Texture2DVideoFrame> frames;
 
     int crf;
 
@@ -132,6 +137,7 @@ public class AnimationComponent : MonoBehaviour
             //for (int i = 0; i < renderer.sharedMesh.vertexCount; i++) bakeVerts.Add(Vector3.zero);
             uMin = float.MaxValue; uMax = float.MinValue;
             vMin = float.MaxValue; vMax = float.MinValue;
+            frames = new List<Texture2DVideoFrame>();
         }
 
     }
@@ -215,20 +221,24 @@ public class AnimationComponent : MonoBehaviour
             RenderTexture.active = cam.targetTexture;
             outTexture.ReadPixels(new Rect(0, 0, screenSize, screenSize), 0, 0, false);
             outTexture.Apply();
-            byte[] png = outTexture.EncodeToPNG();
-            File.WriteAllBytes($@"D:\testscreen\{screenCount}.png", png);
+            frames.Add(new Texture2DVideoFrame(outTexture));
+            //byte[] png = outTexture.EncodeToPNG();
+            //File.WriteAllBytes($@"D:\testscreen\{screenCount}.png", png);
             screenCount++;
 
         } else if (mode == Mode.renderFinish) {
 
-            string[] frames = new string[screenCount];
-            for (int i = 0; i < frames.Length; i++) frames[i] = $@"D:\testscreen\{i}.png";
-
+            var videoFramesSource = new RawVideoPipeSource(GetFrames(frames)) {
+                FrameRate = 60 //set source frame rate
+            };
+            
             FFMpegArguments
-                .FromConcatInput(frames, options => options.WithFramerate(60))
+                .FromPipeInput(videoFramesSource)
                 .OutputToFile(@$"D:\testscreen\{screenName}.avif", true, options => options
                     .WithVideoCodec("libsvtav1")
+                    .WithVideoFilters(options => options.Mirror(Mirroring.Vertical))
                     .Resize(128, 128)
+                    
                     //.WithVideoFilters(filterOptions => filterOptions.Scale(128, 128))
                     .WithConstantRateFactor(crf)
                     //.WithSpeedPreset(Speed.Faster)
@@ -243,12 +253,45 @@ public class AnimationComponent : MonoBehaviour
                 process.WaitForExit();
             }
             */
-            foreach (string file in Directory.EnumerateFiles(@"D:\testscreen", "*.png")) File.Delete(file);
+            //foreach (string file in Directory.EnumerateFiles(@"D:\testscreen", "*.png")) File.Delete(file);
             cam.targetTexture = null;
             Destroy(gameObject);
         }
+        
+
+
+        IEnumerable<IVideoFrame> GetFrames(List<Texture2DVideoFrame> frames) {
+            for(int i = 0; i < frames.Count; i++) {
+                yield return frames[i];
+            }
+        }
 
         //testNoUpdate = true;
+    }
+
+    class Texture2DVideoFrame : IVideoFrame {
+        public int Width { get; private set; }
+
+        public int Height { get; private set; }
+
+        public string Format { get; private set; }
+
+        byte[] data;
+
+        public Texture2DVideoFrame(Texture2D tex) {
+            Width = tex.width;
+            Height = tex.height;
+            Format = "argb";
+            data = tex.GetRawTextureData();
+        }
+        
+        public void Serialize(Stream pipe) {
+            pipe.Write(data, 0, data.Length);
+        }
+
+        public async Task SerializeAsync(Stream stream, CancellationToken token) {;
+            await stream.WriteAsync(data, 0, data.Length, token).ConfigureAwait(false);
+        }
     }
 
     [Serializable]

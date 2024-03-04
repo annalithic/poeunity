@@ -10,16 +10,50 @@ public class Importer : MonoBehaviour {
     public string gameFolder = @"E:\Extracted\PathOfExile\3.21.Crucible";
     public bool importSMD;
     public bool importAOC;
+
     public int importMonsterIdx;
+    public string importMonsterId;
+    public string importMonsterName;
+
     public string importMonsterAction;
     public bool importMonster;
     public bool importSmdAst;
     public int screenSize;
     public int crf;
 
+    public bool decrementMonsterIdx;
+    public bool incrementMonsterIdx;
+
+
+    Dictionary<int, string> monsterIds;
+    Dictionary<int, string> monsterNames;
+
 
     // Update is called once per frame
     void Update() {
+        if(incrementMonsterIdx) {
+            incrementMonsterIdx = false;
+            importMonsterIdx++;
+        } else if (decrementMonsterIdx) {
+            decrementMonsterIdx = false;
+            importMonsterIdx--;
+        }
+
+        if(monsterIds == null) {
+            monsterNames = new Dictionary<int, string>();
+            monsterIds = new Dictionary<int, string>();
+            foreach(string line in File.ReadAllLines(@"E:\A\A\Visual Studio\Archbestiary\bin\Debug\net6.0\monsterart.txt")) {
+                string[] split = line.Split('@');
+                if (split.Length < 4) continue;
+                monsterNames[int.Parse(split[0])] = split[2];
+                monsterIds[int.Parse(split[0])] = split[1].Substring(18);
+            }
+        }
+        if (monsterNames.ContainsKey(importMonsterIdx)) {
+            importMonsterName = monsterNames[importMonsterIdx];
+            importMonsterId = monsterIds[importMonsterIdx];
+        } else importMonsterName = "-";
+
         if (importSMD) {
             importSMD = false;
             string smdPath = EditorUtility.OpenFilePanel("Import smd", Path.Combine(gameFolder, "art/models/monsters"), "smd,fmt");
