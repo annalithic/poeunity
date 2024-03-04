@@ -89,10 +89,11 @@ public class Importer : MonoBehaviour {
                 reader.ReadLine();
             }
             string[] words = reader.ReadLine().Split('@');
+            Debug.Log("ACT: " + words[3]);
             Act act = new Act(Path.Combine(gameFolder, words[3]));
             if (act.animations.ContainsKey(importMonsterAction)) {
-                Aoc aoc = new Aoc(Path.Combine(gameFolder, words[4]));
-                string astPath = Path.Combine(gameFolder, aoc.skeleton);
+                PoeTextFile aoc = new PoeTextFile(gameFolder, words[4]);
+                string astPath = Path.Combine(gameFolder, aoc.blocks["ClientAnimationController"]["skeleton"]);
                 Ast ast = new Ast(astPath);
                 int animationIndex = -1;
                 for(int i = 0; i < ast.animations.Length; i++) {
@@ -101,10 +102,13 @@ public class Importer : MonoBehaviour {
                         break;
                     }
                 }
-                if(animationIndex != -1) {
-                    Sm sm = new Sm(Path.Combine(gameFolder, aoc.skin));
+                if (animationIndex != -1) {
+                    string smPath = Path.Combine(gameFolder, aoc.blocks["SkinMesh"]["skin"]);
+                    Sm sm = new Sm(smPath);
+
                     string smdPath = Path.Combine(gameFolder, sm.smd);
                     Mesh mesh = ImportSMD(smdPath, true);
+
                     Material[] materials = new Material[sm.materials.Length];
                     List<Material> materialIndices = new List<Material>();
                     int submeshCounter = 0;
@@ -136,6 +140,8 @@ public class Importer : MonoBehaviour {
 
                     ImportAnimation(mesh, ast, animationIndex, Vector3.zero, null, words[1].Replace('/','_') + '_' + importMonsterAction, materialIndices.ToArray());
                 }
+            } else {
+                Debug.LogError(words[3] + " MISSING ANIMATION " + importMonsterAction);
             }
         }
     }
