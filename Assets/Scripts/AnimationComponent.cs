@@ -10,6 +10,7 @@ using FFMpegCore.Pipes;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Data;
+using static UnityEditor.PlayerSettings;
 
 
 public class AnimationComponent : MonoBehaviour
@@ -56,6 +57,8 @@ public class AnimationComponent : MonoBehaviour
     float uMin; float uMax; float vMin; float vMax;
 
     List<Texture2DVideoFrame> frames;
+
+    Dictionary<Transform, List<Vector3>> attatchedMeshes;
 
     int crf;
 
@@ -138,6 +141,15 @@ public class AnimationComponent : MonoBehaviour
             uMin = float.MaxValue; uMax = float.MinValue;
             vMin = float.MaxValue; vMax = float.MinValue;
             frames = new List<Texture2DVideoFrame>();
+
+            attatchedMeshes = new Dictionary<Transform, List<Vector3>>();
+            foreach (var meshFilter in gameObject.GetComponentsInChildren<MeshFilter>()) {
+                Transform t = meshFilter.transform;
+                Mesh staticMesh = meshFilter.sharedMesh;
+                List<Vector3> verts = new List<Vector3>(staticMesh.vertexCount);
+                staticMesh.GetVertices(verts);
+                attatchedMeshes[t] = verts;
+            }
         }
 
     }
@@ -197,6 +209,17 @@ public class AnimationComponent : MonoBehaviour
                 if (pos.x < uMin) uMin = pos.x;
                 if (pos.y < vMin) vMin = pos.y;
                 if (pos.y > vMax) vMax = pos.y;
+            }
+
+            foreach(Transform t in attatchedMeshes.Keys) {
+                var verts = attatchedMeshes[t];
+                for (int i = 0; i < verts.Count; i++) {
+                    var pos = cam.WorldToViewportPoint(t.TransformPoint(verts[i]));
+                    if (pos.x > uMax) uMax = pos.x;
+                    if (pos.x < uMin) uMin = pos.x;
+                    if (pos.y < vMin) vMin = pos.y;
+                    if (pos.y > vMax) vMax = pos.y;
+                }
             }
 
             //if (screenCount > 0) bounds.Encapsulate(renderer.localBounds);

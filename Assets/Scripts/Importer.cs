@@ -87,9 +87,24 @@ public class Importer : MonoBehaviour {
         }
 
     }
+    
+    Transform ImportStaticMesh(string gamePath, string path) {
+        if(Path.GetExtension(path) == ".ao") {
+            Debug.LogWarning("READING AOC " + Path.Combine(gamePath, path + "c"));
+            PoeTextFile aoc = new PoeTextFile(gamePath, path + "c");
+            if (aoc.blocks["FixedMesh"]["fixed_mesh"] != null) {
+                return TestFmt(Path.Combine(gamePath, aoc.blocks["FixedMesh"]["fixed_mesh"]));
+            } else {
+                Debug.LogError($"AOC {path} HAS NO fixed_mesh");
+            }
+        } else {
+            Debug.LogError("STATIC MESH EXTENSION NOT SUPPORTED FOR " + path);
+        }
+        return null;
+    }
 
-    void TestFmt() {
-        string fmtPath = @"D:\Extracted\PathOfExile\3.23.Affliction\art\models\items\weapons\onehandweapons\onehandswords\monsters\gargoylegolemredsword.fmt";
+    Transform TestFmt(string fmtPath = @"D:\Extracted\PathOfExile\3.23.Affliction\art\models\items\weapons\onehandweapons\onehandswords\monsters\gargoylegolemredsword.fmt") {
+        Debug.LogWarning("READING FMT " + fmtPath);
         Fmt fmt = new Fmt(fmtPath);
 
         Mesh mesh = ImportMesh(fmt.meshes[0], Path.GetFileName(fmtPath), true);
@@ -101,12 +116,12 @@ public class Importer : MonoBehaviour {
         for(int i = 0; i < fmt.shapeMaterials.Length; i++) {
             string material = fmt.shapeMaterials[i];
             if(!materials.ContainsKey(material)) {
-                Mat mat = new Mat(Path.Combine(gameFolder, material));
+                string matPath = Path.Combine(gameFolder, material);
+                Debug.LogWarning("READING MAT " + matPath);
+                Mat mat = new Mat(matPath);
                 string tex = null;
                 foreach (var graphInstance in mat.graphs) {
-                    Debug.Log(graphInstance.parent);
                     if (graphInstance.baseTex != null) {
-                        Debug.Log(Path.Combine(gameFolder, graphInstance.baseTex));
                         tex = graphInstance.baseTex;
                         break;
                     }
@@ -114,7 +129,7 @@ public class Importer : MonoBehaviour {
                 Material unityMat = Instantiate(Resources.Load<Material>("Default"));
                 unityMat.name = Path.GetFileNameWithoutExtension(material);
                 if (tex != null) {
-                    Debug.Log(Path.Combine(gameFolder, tex));
+                    Debug.LogWarning("READING DDS " + Path.Combine(gameFolder, tex));
                     Texture2D unityTex = DdsTextureLoader.LoadTexture(Path.Combine(gameFolder, tex));
                     unityMat.mainTexture = unityTex;
                 }
@@ -132,8 +147,8 @@ public class Importer : MonoBehaviour {
         renderer.sharedMaterials = sharedMaterials;
         meshFilter.sharedMesh = mesh;
 
-        newObj.transform.Rotate(new Vector3(90, 0, 0));
-
+        //newObj.transform.Rotate(new Vector3(90, 0, 0));
+        return newObj.transform;
     }
 
     void RenderMonsterIdle(int idx) {
@@ -170,9 +185,7 @@ public class Importer : MonoBehaviour {
                         string tex = null;
                         Mat mat = new Mat(Path.Combine(gameFolder, sm.materials[i]));
                         foreach(var graphInstance in mat.graphs) {
-                            Debug.Log(graphInstance.parent);
                             if (graphInstance.baseTex != null) {
-                                Debug.Log(Path.Combine(gameFolder, graphInstance.baseTex));
                                 tex = graphInstance.baseTex;
                                 break;
                             }
@@ -180,7 +193,7 @@ public class Importer : MonoBehaviour {
                         Material unityMat = Instantiate(Resources.Load<Material>("Default"));
                         unityMat.name = Path.GetFileNameWithoutExtension(sm.materials[i]);
                         if(tex != null) {
-                            Debug.Log(Path.Combine(gameFolder, tex));
+                            Debug.LogWarning("READING DDS " + Path.Combine(gameFolder, tex));
                             Texture2D unityTex = DdsTextureLoader.LoadTexture(Path.Combine(gameFolder, tex));
                             unityMat.mainTexture = unityTex;
                         }
@@ -188,10 +201,22 @@ public class Importer : MonoBehaviour {
                             materialIndices.Add(unityMat);
                         }
                     }
-                    
+
+                    Transform r_weapon = null;
+                    Transform l_weapon = null;
+
+                    //R_Weapon
+                    if(words[6] != "") {
+                        r_weapon = ImportStaticMesh(gameFolder, words[6]);
+                    }
+                    if (words[5] != "") {
+                        l_weapon = ImportStaticMesh(gameFolder, words[5]);
+                    }
+
+
                     //GameObject r_weapon
 
-                    ImportAnimation(mesh, ast, animationIndex, Vector3.zero, null, words[1].Replace('/','_') + '_' + importMonsterAction, materialIndices.ToArray());
+                    ImportAnimation(mesh, ast, animationIndex, Vector3.zero, null, words[1].Replace('/', '_') + '_' + importMonsterAction, materialIndices.ToArray(), r_weapon, l_weapon);
                 }
             } else {
                 Debug.LogError(words[3] + " MISSING ANIMATION " + importMonsterAction);
@@ -213,12 +238,12 @@ public class Importer : MonoBehaviour {
     }
 
 
-    void ImportAnimation(Mesh mesh, Ast ast, int animation, Vector3 pos, Transform parent = null, string screenName = null, Material[] materials = null) {
+    void ImportAnimation(Mesh mesh, Ast ast, int animation, Vector3 pos, Transform parent = null, string screenName = null, Material[] materials = null, Transform r_weapon = null, Transform l_weapon = null) {
         Transform[] bones = new Transform[ast.bones.Length];
 
         GameObject newObj = new GameObject(ast.animations[animation].name);
 
-        ImportBone(bones, ast, 0, animation, newObj.transform);
+        ImportBone(bones, ast, 0, animation, newObj.transform, r_weapon, l_weapon);
         if (mesh.bindposes == null || mesh.bindposes.Length == 0) {
             Matrix4x4[] bindPoses = new Matrix4x4[ast.bones.Length];
             for (int i = 0; i < bones.Length; i++) {
@@ -266,12 +291,15 @@ public class Importer : MonoBehaviour {
         return Quaternion.LookRotation(forward, upwards);
     }
 
-    void ImportBone(Transform[] bones, Ast ast, int boneIndex, int animation = 0, Transform parent = null) {
-        bones[boneIndex] = new GameObject(ast.bones[boneIndex].name).transform;
-        if (parent != null) bones[boneIndex].SetParent(parent);
+    void ImportBone(Transform[] bones, Ast ast, int boneIndex, int animation = 0, Transform parent = null, Transform r_weapon = null, Transform l_weapon = null ) {
+        Transform bone = new GameObject(ast.bones[boneIndex].name).transform;
+        
 
-        bones[boneIndex].localPosition = TranslationFromMatrix(ast.bones[boneIndex].transform);
-        bones[boneIndex].localRotation = RotationFromMatrix(ast.bones[boneIndex].transform);
+
+        if (parent != null) bone.SetParent(parent);
+
+        bone.localPosition = TranslationFromMatrix(ast.bones[boneIndex].transform);
+        bone.localRotation = RotationFromMatrix(ast.bones[boneIndex].transform);
         /*
         JankBoneComponent component = bones[boneIndex].gameObject.AddComponent<JankBoneComponent>();
         component.positionTimes = new float[ast.animations[animation].tracks[boneIndex].positionKeys.Length];
@@ -297,8 +325,15 @@ public class Importer : MonoBehaviour {
             );
         }
         */
-        if (ast.bones[boneIndex].sibling != 255) ImportBone(bones, ast, ast.bones[boneIndex].sibling, animation, parent);
-        if (ast.bones[boneIndex].child != 255) ImportBone(bones, ast, ast.bones[boneIndex].child, animation, bones[boneIndex]);
+        if (ast.bones[boneIndex].sibling != 255) ImportBone(bones, ast, ast.bones[boneIndex].sibling, animation, parent, r_weapon, l_weapon);
+        if (ast.bones[boneIndex].child != 255) ImportBone(bones, ast, ast.bones[boneIndex].child, animation, bone, r_weapon, l_weapon);
+
+        if (r_weapon != null && bone.name == "R_Weapon")
+            r_weapon.SetParent(bone, false);
+        else if (l_weapon != null && bone.name == "L_Weapon")
+            l_weapon.SetParent(bone, false);
+
+        bones[boneIndex] = bone;
     }
 
     Mesh ImportMesh(PoeMesh poeMesh, string name, bool useSubmeshes) {
