@@ -24,6 +24,8 @@ public class Importer : MonoBehaviour {
     public bool decrementMonsterIdx;
     public bool incrementMonsterIdx;
 
+    public bool testFmt;
+
 
     Dictionary<int, string> monsterIds;
     Dictionary<int, string> monsterNames;
@@ -79,7 +81,58 @@ public class Importer : MonoBehaviour {
             string smdPath = EditorUtility.OpenFilePanel("Import smd", @"F:\Extracted\PathOfExile\3.22.Ancestor\monsters\genericbiped\bipedmedium\modelvariants", "smd");
             string astPath = EditorUtility.OpenFilePanel("Import ast", @"F:\Extracted\PathOfExile\3.22.Ancestor\monsters\genericbiped\bipedmedium\animations", "ast");
             ImportSmdAnimations(smdPath, astPath, Path.GetFileName(astPath));
+        } else if (testFmt) {
+            testFmt = false;
+            TestFmt();
         }
+
+    }
+
+    void TestFmt() {
+        string fmtPath = @"D:\Extracted\PathOfExile\3.23.Affliction\art\models\items\weapons\onehandweapons\onehandswords\monsters\gargoylegolemredsword.fmt";
+        Fmt fmt = new Fmt(fmtPath);
+
+        Mesh mesh = ImportMesh(fmt.meshes[0], Path.GetFileName(fmtPath), true);
+
+        Dictionary<string, Material> materials = new Dictionary<string, Material>();
+
+        Material[] sharedMaterials = new Material[fmt.shapeMaterials.Length];
+
+        for(int i = 0; i < fmt.shapeMaterials.Length; i++) {
+            string material = fmt.shapeMaterials[i];
+            if(!materials.ContainsKey(material)) {
+                Mat mat = new Mat(Path.Combine(gameFolder, material));
+                string tex = null;
+                foreach (var graphInstance in mat.graphs) {
+                    Debug.Log(graphInstance.parent);
+                    if (graphInstance.baseTex != null) {
+                        Debug.Log(Path.Combine(gameFolder, graphInstance.baseTex));
+                        tex = graphInstance.baseTex;
+                        break;
+                    }
+                }
+                Material unityMat = Instantiate(Resources.Load<Material>("Default"));
+                unityMat.name = Path.GetFileNameWithoutExtension(material);
+                if (tex != null) {
+                    Debug.Log(Path.Combine(gameFolder, tex));
+                    Texture2D unityTex = DdsTextureLoader.LoadTexture(Path.Combine(gameFolder, tex));
+                    unityMat.mainTexture = unityTex;
+                }
+                materials[material] = unityMat;
+            }
+            sharedMaterials[i] = materials[material];
+        }
+
+
+        GameObject newObj = new GameObject(Path.GetFileName(fmtPath));
+
+
+        MeshRenderer renderer = newObj.AddComponent<MeshRenderer>();
+        MeshFilter meshFilter = newObj.AddComponent<MeshFilter>();
+        renderer.sharedMaterials = sharedMaterials;
+        meshFilter.sharedMesh = mesh;
+
+        newObj.transform.Rotate(new Vector3(90, 0, 0));
 
     }
 
@@ -136,7 +189,7 @@ public class Importer : MonoBehaviour {
                         }
                     }
                     
-                    
+                    //GameObject r_weapon
 
                     ImportAnimation(mesh, ast, animationIndex, Vector3.zero, null, words[1].Replace('/','_') + '_' + importMonsterAction, materialIndices.ToArray());
                 }
@@ -248,24 +301,22 @@ public class Importer : MonoBehaviour {
         if (ast.bones[boneIndex].child != 255) ImportBone(bones, ast, ast.bones[boneIndex].child, animation, bones[boneIndex]);
     }
 
-
-    Mesh ImportSMD(string path, bool useSubmeshes = false) {
-        Smd smd = new Smd(path);
-        if (smd.model.meshes[0].idx.Length == 0 || smd.model.meshes[0].vertCount == 0) return null;
-        Vector3[] verts = new Vector3[smd.model.meshes[0].vertCount];
+    Mesh ImportMesh(PoeMesh poeMesh, string name, bool useSubmeshes) {
+        if (poeMesh.idx.Length == 0 || poeMesh.vertCount == 0) return null;
+        Vector3[] verts = new Vector3[poeMesh.vertCount];
         for (int i = 0; i < verts.Length; i++) {
-            verts[i] = new Vector3(smd.model.meshes[0].verts[i * 3], smd.model.meshes[0].verts[i * 3 + 1], smd.model.meshes[0].verts[i * 3 + 2]);
+            verts[i] = new Vector3(poeMesh.verts[i * 3], poeMesh.verts[i * 3 + 1], poeMesh.verts[i * 3 + 2]);
         }
 
 
-        Vector2[] uvs = new Vector2[smd.model.meshes[0].vertCount];
+        Vector2[] uvs = new Vector2[poeMesh.vertCount];
         for (int i = 0; i < uvs.Length; i++) {
-            uvs[i] = new Vector2(Mathf.HalfToFloat(smd.model.meshes[0].uvs[i * 2]), Mathf.HalfToFloat(smd.model.meshes[0].uvs[i * 2 + 1]));
+            uvs[i] = new Vector2(Mathf.HalfToFloat(poeMesh.uvs[i * 2]), Mathf.HalfToFloat(poeMesh.uvs[i * 2 + 1]));
         }
 
 
-        int[] tris = new int[smd.model.meshes[0].idx.Length];
-        System.Array.Copy(smd.model.meshes[0].idx, tris, tris.Length);
+        int[] tris = new int[poeMesh.idx.Length];
+        System.Array.Copy(poeMesh.idx, tris, tris.Length);
 
 
         Mesh mesh = new Mesh();
@@ -273,35 +324,44 @@ public class Importer : MonoBehaviour {
         mesh.uv = uvs;
         mesh.triangles = tris;
 
-        if(useSubmeshes) {
-            mesh.subMeshCount = smd.model.meshes[0].submeshOffsets.Length;
-            for(int i = 0; i < mesh.subMeshCount; i++) {
+        if (useSubmeshes) {
+            mesh.subMeshCount = poeMesh.submeshOffsets.Length;
+            for (int i = 0; i < mesh.subMeshCount; i++) {
                 mesh.SetSubMesh(i, new UnityEngine.Rendering.SubMeshDescriptor(
-                    smd.model.meshes[0].submeshOffsets[i],
-                    smd.model.meshes[0].submeshSizes[i]));
+                    poeMesh.submeshOffsets[i],
+                    poeMesh.submeshSizes[i]));
             }
         }
 
         mesh.RecalculateNormals();
 
-        BoneWeight[] weights = new BoneWeight[smd.model.meshes[0].vertCount];
-        for (int i = 0; i < weights.Length; i++) {
-            System.Array.Sort(smd.model.meshes[0].boneWeights[i]);
-            //if (i < 100) Debug.Log($"{smd.boneWeights[i][0].weight} | {smd.boneWeights[i][1].weight} | {smd.boneWeights[i][2].weight} | {smd.boneWeights[i][2].weight}  -  {smd.boneWeights[i][0].id} | {smd.boneWeights[i][1].id} | {smd.boneWeights[i][2].id} | {smd.boneWeights[i][3].id}");
-            weights[i] = new BoneWeight() {
-                boneIndex0 = smd.model.meshes[0].boneWeights[i][0].id,
-                boneIndex1 = smd.model.meshes[0].boneWeights[i][1].id,
-                boneIndex2 = smd.model.meshes[0].boneWeights[i][2].id,
-                boneIndex3 = smd.model.meshes[0].boneWeights[i][3].id,
-                weight0 = smd.model.meshes[0].boneWeights[i][0].weight / 255f,
-                weight1 = smd.model.meshes[0].boneWeights[i][1].weight / 255f,
-                weight2 = smd.model.meshes[0].boneWeights[i][2].weight / 255f,
-                weight3 = smd.model.meshes[0].boneWeights[i][3].weight / 255f
-            };
+        if(poeMesh.boneWeights != null) {
+            BoneWeight[] weights = new BoneWeight[poeMesh.vertCount];
+            for (int i = 0; i < weights.Length; i++) {
+                System.Array.Sort(poeMesh.boneWeights[i]);
+                //if (i < 100) Debug.Log($"{smd.boneWeights[i][0].weight} | {smd.boneWeights[i][1].weight} | {smd.boneWeights[i][2].weight} | {smd.boneWeights[i][2].weight}  -  {smd.boneWeights[i][0].id} | {smd.boneWeights[i][1].id} | {smd.boneWeights[i][2].id} | {smd.boneWeights[i][3].id}");
+                weights[i] = new BoneWeight() {
+                    boneIndex0 = poeMesh.boneWeights[i][0].id,
+                    boneIndex1 = poeMesh.boneWeights[i][1].id,
+                    boneIndex2 = poeMesh.boneWeights[i][2].id,
+                    boneIndex3 = poeMesh.boneWeights[i][3].id,
+                    weight0 = poeMesh.boneWeights[i][0].weight / 255f,
+                    weight1 = poeMesh.boneWeights[i][1].weight / 255f,
+                    weight2 = poeMesh.boneWeights[i][2].weight / 255f,
+                    weight3 = poeMesh.boneWeights[i][3].weight / 255f
+                };
+            }
+            mesh.boneWeights = weights;
         }
-        mesh.boneWeights = weights;
-        mesh.name = Path.GetFileName(path);
+
+        mesh.name = name;
 
         return mesh;
+    }
+
+
+    Mesh ImportSMD(string path, bool useSubmeshes = false) {
+        Smd smd = new Smd(path);
+        return ImportMesh(smd.model.meshes[0], Path.GetFileName(path), useSubmeshes);
     }
 }
