@@ -88,22 +88,27 @@ public class Importer : MonoBehaviour {
 
     }
     
-    Transform ImportStaticMesh(string gamePath, string path) {
-        if(Path.GetExtension(path) == ".ao") {
+    Transform ImportObject(string gamePath, string path) {
+        string extension = Path.GetExtension(path);
+        if (extension == ".ao") {
             Debug.LogWarning("READING AOC " + Path.Combine(gamePath, path + "c"));
             PoeTextFile aoc = new PoeTextFile(gamePath, path + "c");
-            if (aoc.blocks["FixedMesh"]["fixed_mesh"] != null) {
-                return TestFmt(Path.Combine(gamePath, aoc.blocks["FixedMesh"]["fixed_mesh"]));
+            if (aoc.TryGet("FixedMesh", "fixed_mesh", out string fixedMesh)) {
+                return TestFmt(Path.Combine(gamePath, fixedMesh));
+            } else if (aoc.TryGet("SkinMesh", "skin", out string skinnedMesh)) {
+                Debug.LogError("SKINNED MESH ATTACHMENTS NOT SUPPORTED");
             } else {
-                Debug.LogError($"AOC {path} HAS NO fixed_mesh");
+                Debug.LogError($"AOC {path} HAS NO mesh");
             }
+        } else if (extension == ".fmt") {
+            return TestFmt(Path.Combine(gamePath, path));
         } else {
             Debug.LogError("STATIC MESH EXTENSION NOT SUPPORTED FOR " + path);
         }
         return null;
     }
 
-    Transform TestFmt(string fmtPath = @"D:\Extracted\PathOfExile\3.23.Affliction\art\models\items\weapons\onehandweapons\onehandswords\monsters\gargoylegolemredsword.fmt") {
+    Transform TestFmt(string fmtPath = @"D:\Extracted\PathOfExile\3.23.Affliction\art\models\monsters\leagueheist\armoury\wingedspear.fmt") {
         Debug.LogWarning("READING FMT " + fmtPath);
         Fmt fmt = new Fmt(fmtPath);
 
@@ -161,8 +166,8 @@ public class Importer : MonoBehaviour {
             Act act = new Act(Path.Combine(gameFolder, words[3]));
             if (act.animations.ContainsKey(importMonsterAction)) {
                 PoeTextFile aoc = new PoeTextFile(gameFolder, words[4]);
-                string astPath = Path.Combine(gameFolder, aoc.blocks["ClientAnimationController"]["skeleton"]);
-                Ast ast = new Ast(astPath);
+                string astPath = aoc.Get("ClientAnimationController", "skeleton");
+                Ast ast = new Ast(Path.Combine(gameFolder, astPath));
                 int animationIndex = -1;
                 for(int i = 0; i < ast.animations.Length; i++) {
                     if (ast.animations[i].name == act.animations[importMonsterAction]) {
@@ -171,7 +176,7 @@ public class Importer : MonoBehaviour {
                     }
                 }
                 if (animationIndex != -1) {
-                    string smPath = Path.Combine(gameFolder, aoc.blocks["SkinMesh"]["skin"]);
+                    string smPath = Path.Combine(gameFolder, aoc.Get("SkinMesh", "skin"));
                     Sm sm = new Sm(smPath);
 
                     string smdPath = Path.Combine(gameFolder, sm.smd);
@@ -202,21 +207,59 @@ public class Importer : MonoBehaviour {
                         }
                     }
 
-                    Transform r_weapon = null;
-                    Transform l_weapon = null;
 
-                    //R_Weapon
-                    if(words[6] != "") {
-                        r_weapon = ImportStaticMesh(gameFolder, words[6]);
-                    }
-                    if (words[5] != "") {
-                        l_weapon = ImportStaticMesh(gameFolder, words[5]);
-                    }
 
 
                     //GameObject r_weapon
 
-                    ImportAnimation(mesh, ast, animationIndex, Vector3.zero, null, words[1].Replace('/', '_') + '_' + importMonsterAction, materialIndices.ToArray(), r_weapon, l_weapon);
+                    Dictionary<string, Transform> bones = new Dictionary<string, Transform>();
+
+                    //NOT ROOT?
+                    Transform importedTransform = ImportAnimation(mesh, ast, animationIndex, Vector3.zero, null, words[1].Replace('/', '_') + '_' + importMonsterAction, materialIndices.ToArray(), bones);
+
+                    foreach(var tuple in aoc.AocGetSockets()) {
+                        bones[tuple.Item1] = bones[tuple.Item2];
+                    }
+
+                    //R_Weapon
+                    if (words[6] != "") {
+                        Transform r_weapon = ImportObject(gameFolder, words[6]);
+                        if(r_weapon != null) {
+                            if (bones.ContainsKey("R_Weapon")) {
+                                r_weapon.SetParent(bones["R_Weapon"], false);
+                            } else {
+                                Debug.LogError("MESH DOES NOT HAVE RIGHT HAND BONE");
+                            }
+                        }
+                    }
+
+                    if (words[5] != "") {
+                        Transform l_weapon = ImportObject(gameFolder, words[5]);
+                        if(l_weapon != null) {
+                            if (bones.ContainsKey("L_Weapon")) {
+                                l_weapon.SetParent(bones["L_Weapon"], false);
+                            } else {
+                                Debug.LogError("MESH DOES NOT HAVE LEFT HAND BONE");
+                            }
+
+                        }
+                    }
+
+                    Debug.LogWarning("READING AO " + Path.Combine(gameFolder, words[4].Substring(0, words[4].Length - 1)));
+                    PoeTextFile ao = new PoeTextFile(gameFolder, words[4].Substring(0, words[4].Length - 1));
+                    foreach(string attachText in ao.GetList("AttachedAnimatedObject", "attached_object")) {
+                        string[] attachWords = attachText.Split(' ');
+                        Transform attachment = ImportObject(gameFolder, attachWords[1]);
+                        if (attachment == null) continue;
+                        if (attachWords[0] == "<root>") attachment.SetParent(importedTransform, false);
+                        else if (bones.ContainsKey(attachWords[0])) attachment.SetParent(bones[attachWords[0]], false);
+                        else Debug.LogError("MONSTER MISSING BONE " + attachWords[0] + " FOR ATTACHMENT " + attachWords[1]);
+                    }
+
+
+                    //TODO JANK!!!!!!!!!!!!!!!!
+                    importedTransform.GetComponent<AnimationComponent>().SetAttachmentData();
+
                 }
             } else {
                 Debug.LogError(words[3] + " MISSING ANIMATION " + importMonsterAction);
@@ -238,12 +281,13 @@ public class Importer : MonoBehaviour {
     }
 
 
-    void ImportAnimation(Mesh mesh, Ast ast, int animation, Vector3 pos, Transform parent = null, string screenName = null, Material[] materials = null, Transform r_weapon = null, Transform l_weapon = null) {
+    Transform ImportAnimation(Mesh mesh, Ast ast, int animation, Vector3 pos, Transform parent = null, string screenName = null, Material[] materials = null, Dictionary<string, Transform> boneDict = null) {
         Transform[] bones = new Transform[ast.bones.Length];
+        if (boneDict == null) boneDict = new Dictionary<string, Transform>();
 
         GameObject newObj = new GameObject(ast.animations[animation].name);
 
-        ImportBone(bones, ast, 0, animation, newObj.transform, r_weapon, l_weapon);
+        ImportBone(bones, ast, 0, animation, newObj.transform, boneDict);
         if (mesh.bindposes == null || mesh.bindposes.Length == 0) {
             Matrix4x4[] bindPoses = new Matrix4x4[ast.bones.Length];
             for (int i = 0; i < bones.Length; i++) {
@@ -272,6 +316,7 @@ public class Importer : MonoBehaviour {
         newObj.transform.Translate(pos);
         newObj.transform.Rotate(new Vector3(90, 0, 0));
         if(parent != null) newObj.transform.SetParent(parent);
+        return newObj.transform;
     }
 
     Vector3 TranslationFromMatrix(float[] transform) {
@@ -291,49 +336,18 @@ public class Importer : MonoBehaviour {
         return Quaternion.LookRotation(forward, upwards);
     }
 
-    void ImportBone(Transform[] bones, Ast ast, int boneIndex, int animation = 0, Transform parent = null, Transform r_weapon = null, Transform l_weapon = null ) {
+    void ImportBone(Transform[] bones, Ast ast, int boneIndex, int animation = 0, Transform parent = null, Dictionary<string, Transform> boneDict = null) {
         Transform bone = new GameObject(ast.bones[boneIndex].name).transform;
-        
-
 
         if (parent != null) bone.SetParent(parent);
 
         bone.localPosition = TranslationFromMatrix(ast.bones[boneIndex].transform);
         bone.localRotation = RotationFromMatrix(ast.bones[boneIndex].transform);
-        /*
-        JankBoneComponent component = bones[boneIndex].gameObject.AddComponent<JankBoneComponent>();
-        component.positionTimes = new float[ast.animations[animation].tracks[boneIndex].positionKeys.Length];
-        component.positions = new Vector3[ast.animations[animation].tracks[boneIndex].positionKeys.Length];
-        for (int i = 0; i < component.positions.Length; i++) {
-            component.positionTimes[i] = ast.animations[animation].tracks[boneIndex].positionKeys[i][0];
-            component.positions[i] = new Vector3(
-                ast.animations[animation].tracks[boneIndex].positionKeys[i][1],
-                ast.animations[animation].tracks[boneIndex].positionKeys[i][2],
-                ast.animations[animation].tracks[boneIndex].positionKeys[i][3]
-            );
-        }
-
-        component.rotationTimes = new float[ast.animations[animation].tracks[boneIndex].rotationKeys.Length];
-        component.rotations = new Quaternion[ast.animations[animation].tracks[boneIndex].rotationKeys.Length];
-        for (int i = 0; i < component.rotations.Length; i++) {
-            component.rotationTimes[i] = ast.animations[animation].tracks[boneIndex].rotationKeys[i][0];
-            component.rotations[i] = new Quaternion(
-                ast.animations[animation].tracks[boneIndex].rotationKeys[i][1],
-                ast.animations[animation].tracks[boneIndex].rotationKeys[i][2],
-                ast.animations[animation].tracks[boneIndex].rotationKeys[i][3],
-                ast.animations[animation].tracks[boneIndex].rotationKeys[i][4]
-            );
-        }
-        */
-        if (ast.bones[boneIndex].sibling != 255) ImportBone(bones, ast, ast.bones[boneIndex].sibling, animation, parent, r_weapon, l_weapon);
-        if (ast.bones[boneIndex].child != 255) ImportBone(bones, ast, ast.bones[boneIndex].child, animation, bone, r_weapon, l_weapon);
-
-        if (r_weapon != null && bone.name == "R_Weapon")
-            r_weapon.SetParent(bone, false);
-        else if (l_weapon != null && bone.name == "L_Weapon")
-            l_weapon.SetParent(bone, false);
+        if (ast.bones[boneIndex].sibling != 255) ImportBone(bones, ast, ast.bones[boneIndex].sibling, animation, parent, boneDict);
+        if (ast.bones[boneIndex].child != 255) ImportBone(bones, ast, ast.bones[boneIndex].child, animation, bone, boneDict);
 
         bones[boneIndex] = bone;
+        if(boneDict != null) boneDict[bone.name] = bone;
     }
 
     Mesh ImportMesh(PoeMesh poeMesh, string name, bool useSubmeshes) {
@@ -360,11 +374,11 @@ public class Importer : MonoBehaviour {
         mesh.triangles = tris;
 
         if (useSubmeshes) {
-            mesh.subMeshCount = poeMesh.submeshOffsets.Length;
+            mesh.subMeshCount = poeMesh.shapeOffsets.Length;
             for (int i = 0; i < mesh.subMeshCount; i++) {
                 mesh.SetSubMesh(i, new UnityEngine.Rendering.SubMeshDescriptor(
-                    poeMesh.submeshOffsets[i],
-                    poeMesh.submeshSizes[i]));
+                    poeMesh.shapeOffsets[i],
+                    poeMesh.shapeLengths[i]));
             }
         }
 

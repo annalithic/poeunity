@@ -142,16 +142,21 @@ public class AnimationComponent : MonoBehaviour
             vMin = float.MaxValue; vMax = float.MinValue;
             frames = new List<Texture2DVideoFrame>();
 
-            attatchedMeshes = new Dictionary<Transform, List<Vector3>>();
-            foreach (var meshFilter in gameObject.GetComponentsInChildren<MeshFilter>()) {
-                Transform t = meshFilter.transform;
-                Mesh staticMesh = meshFilter.sharedMesh;
-                List<Vector3> verts = new List<Vector3>(staticMesh.vertexCount);
-                staticMesh.GetVertices(verts);
-                attatchedMeshes[t] = verts;
-            }
+
         }
 
+    }
+
+    public void SetAttachmentData() {
+        attatchedMeshes = new Dictionary<Transform, List<Vector3>>();
+        foreach (var meshFilter in gameObject.GetComponentsInChildren<MeshFilter>()) {
+            Transform t = meshFilter.transform;
+            Mesh staticMesh = meshFilter.sharedMesh;
+            List<Vector3> verts = new List<Vector3>(staticMesh.vertexCount);
+            staticMesh.GetVertices(verts);
+            attatchedMeshes[t] = verts;
+            Debug.Log("ATTACHED MESH " + t.name);
+        }
     }
 
     Vector3 AxisCorrect(Vector3 v) {
