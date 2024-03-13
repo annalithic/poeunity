@@ -9,8 +9,6 @@ using FFMpegCore.Enums;
 using FFMpegCore.Pipes;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Data;
-using static UnityEditor.PlayerSettings;
 
 
 public class AnimationComponent : MonoBehaviour
@@ -26,6 +24,7 @@ public class AnimationComponent : MonoBehaviour
 
     Mode mode;
     string screenName;
+    int renderSize;
     int screenSize;
     RenderTexture screenRT;
     Texture2D outTexture;
@@ -62,7 +61,7 @@ public class AnimationComponent : MonoBehaviour
 
     int crf;
 
-    public void SetData(Transform[] bones, SkinnedMeshRenderer renderer, AstAnimation animation, string screenName = null, int screenSize = 512, int crf = 32) {
+    public void SetData(Transform[] bones, SkinnedMeshRenderer renderer, AstAnimation animation, string screenName = null, int renderSize = 512, int screenSize = 128, int crf = 32) {
         this.renderer = renderer;
         this.bones = bones;
         this.crf = crf;
@@ -129,6 +128,7 @@ public class AnimationComponent : MonoBehaviour
         if(screenName != null) {
             mode = Mode.bounds;
             this.screenName = screenName;
+            this.renderSize = renderSize;
             this.screenSize = screenSize;
             screenCount = 0;
             cam = Camera.main;
@@ -238,8 +238,8 @@ public class AnimationComponent : MonoBehaviour
 
             screenCount = 0;
 
-            screenRT = new RenderTexture(screenSize, screenSize, 0, RenderTextureFormat.ARGB32);
-            outTexture = new Texture2D(screenSize, screenSize, TextureFormat.ARGB32, false);
+            screenRT = new RenderTexture(renderSize, renderSize, 0, RenderTextureFormat.ARGB32);
+            outTexture = new Texture2D(renderSize, renderSize, TextureFormat.ARGB32, false);
             cam.targetTexture = screenRT;
 
             mode = Mode.render;
@@ -247,7 +247,7 @@ public class AnimationComponent : MonoBehaviour
         } if(mode == Mode.render) {
             cam.Render();
             RenderTexture.active = cam.targetTexture;
-            outTexture.ReadPixels(new Rect(0, 0, screenSize, screenSize), 0, 0, false);
+            outTexture.ReadPixels(new Rect(0, 0, renderSize, renderSize), 0, 0, false);
             outTexture.Apply();
             frames.Add(new Texture2DVideoFrame(outTexture));
             //byte[] png = outTexture.EncodeToPNG();
@@ -265,7 +265,7 @@ public class AnimationComponent : MonoBehaviour
                 .OutputToFile(@$"D:\testscreen\{screenName}.avif", true, options => options
                     .WithVideoCodec("libsvtav1")
                     .WithVideoFilters(options => options.Mirror(Mirroring.Vertical))
-                    .Resize(128, 128)
+                    .Resize(screenSize, screenSize)
                     
                     //.WithVideoFilters(filterOptions => filterOptions.Scale(128, 128))
                     .WithConstantRateFactor(crf)

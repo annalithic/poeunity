@@ -18,6 +18,7 @@ public class Importer : MonoBehaviour {
     public string importMonsterAction;
     public bool importMonster;
     public bool importSmdAst;
+    public int renderSize;
     public int screenSize;
     public int crf;
 
@@ -59,7 +60,7 @@ public class Importer : MonoBehaviour {
         if (importSMD) {
             importSMD = false;
             string smdPath = EditorUtility.OpenFilePanel("Import smd", Path.Combine(gameFolder, "art/models/monsters"), "smd,fmt");
-            Mesh m = ImportSMD(smdPath);
+            Mesh m = ImportSmd(smdPath);
             GameObject smdObj = new GameObject(Path.GetFileName(smdPath));
             MeshFilter mf = smdObj.AddComponent<MeshFilter>();
             mf.sharedMesh = m;
@@ -83,77 +84,108 @@ public class Importer : MonoBehaviour {
             ImportSmdAnimations(smdPath, astPath, Path.GetFileName(astPath));
         } else if (testFmt) {
             testFmt = false;
-            TestFmt();
+            
         }
 
     }
     
     Transform ImportObject(string gamePath, string path) {
+        Debug.Log("IMPORTING OBJECT " + path);
         string extension = Path.GetExtension(path);
         if (extension == ".ao") {
             Debug.LogWarning("READING AOC " + Path.Combine(gamePath, path + "c"));
             PoeTextFile aoc = new PoeTextFile(gamePath, path + "c");
             if (aoc.TryGet("FixedMesh", "fixed_mesh", out string fixedMesh)) {
-                return TestFmt(Path.Combine(gamePath, fixedMesh));
+                return ImportFixedMesh(gamePath, fixedMesh);
             } else if (aoc.TryGet("SkinMesh", "skin", out string skinnedMesh)) {
-                Debug.LogError("SKINNED MESH ATTACHMENTS NOT SUPPORTED");
+                return ImportSkinnedMesh(gamePath, skinnedMesh);
             } else {
                 Debug.LogError($"AOC {path} HAS NO mesh");
             }
         } else if (extension == ".fmt") {
-            return TestFmt(Path.Combine(gamePath, path));
+            return ImportFixedMesh(gamePath, path);
         } else {
-            Debug.LogError("STATIC MESH EXTENSION NOT SUPPORTED FOR " + path);
+            Debug.LogError("MESH EXTENSION NOT SUPPORTED FOR " + path);
         }
         return null;
     }
 
-    Transform TestFmt(string fmtPath = @"D:\Extracted\PathOfExile\3.23.Affliction\art\models\monsters\leagueheist\armoury\wingedspear.fmt") {
-        Debug.LogWarning("READING FMT " + fmtPath);
-        Fmt fmt = new Fmt(fmtPath);
+    static HashSet<string> invisGraphs = new HashSet<string> {
+        "Metadata/Effects/Graphs/General/FurV2.fxgraph",
+        "Metadata/Effects/Graphs/General/FurV3.fxgraph",
+        "Metadata/Effects/Graphs/General/FurSecondPass.fxgraph"
+    };
 
-        Mesh mesh = ImportMesh(fmt.meshes[0], Path.GetFileName(fmtPath), true);
+    Material ImportMaterial(string gamePath, string path) {
+        string tex = null;
+        bool invis = false;
+        Mat mat = new Mat(gameFolder, path);
+        foreach (var graphInstance in mat.graphs) {
+             if (invisGraphs.Contains(graphInstance.parent)) {
+                invis = true;
+                break;
+            } else if (graphInstance.baseTex != null) {
+                tex = graphInstance.baseTex;
+                break;
+            }
+        }
+        if(invis) {
+            return Resources.Load<Material>("Invisible");
+        }
+        Material unityMat = Instantiate(Resources.Load<Material>("Default"));
+        unityMat.name = Path.GetFileNameWithoutExtension(path);
+        if (tex != null) {
+            Debug.LogWarning("READING DDS " + Path.Combine(gameFolder, tex));
+            Texture2D unityTex = DdsTextureLoader.LoadTexture(Path.Combine(gameFolder, tex));
+            unityMat.mainTexture = unityTex;
+        }
+        return unityMat;
+    }
 
-        Dictionary<string, Material> materials = new Dictionary<string, Material>();
-
+    Transform ImportFixedMesh(string gamePath, string path) {
+        GameObject unityObj = new GameObject(Path.GetFileName(path));
+        Fmt fmt = new Fmt(gamePath, path);
         Material[] sharedMaterials = new Material[fmt.shapeMaterials.Length];
 
-        for(int i = 0; i < fmt.shapeMaterials.Length; i++) {
+        Dictionary<string, Material> materials = new Dictionary<string, Material>();
+        for (int i = 0; i < fmt.shapeMaterials.Length; i++) {
             string material = fmt.shapeMaterials[i];
-            if(!materials.ContainsKey(material)) {
-                string matPath = Path.Combine(gameFolder, material);
-                Debug.LogWarning("READING MAT " + matPath);
-                Mat mat = new Mat(matPath);
-                string tex = null;
-                foreach (var graphInstance in mat.graphs) {
-                    if (graphInstance.baseTex != null) {
-                        tex = graphInstance.baseTex;
-                        break;
-                    }
-                }
-                Material unityMat = Instantiate(Resources.Load<Material>("Default"));
-                unityMat.name = Path.GetFileNameWithoutExtension(material);
-                if (tex != null) {
-                    Debug.LogWarning("READING DDS " + Path.Combine(gameFolder, tex));
-                    Texture2D unityTex = DdsTextureLoader.LoadTexture(Path.Combine(gameFolder, tex));
-                    unityMat.mainTexture = unityTex;
-                }
-                materials[material] = unityMat;
+            if (!materials.ContainsKey(material)) {
+                materials[material] = ImportMaterial(gamePath, material);
             }
-            sharedMaterials[i] = materials[material];
+            sharedMaterials[i] = (materials[material]);
         }
-
-
-        GameObject newObj = new GameObject(Path.GetFileName(fmtPath));
-
-
-        MeshRenderer renderer = newObj.AddComponent<MeshRenderer>();
-        MeshFilter meshFilter = newObj.AddComponent<MeshFilter>();
+        Mesh mesh = ImportMesh(fmt.meshes[0], Path.GetFileName(path), true);
+        MeshRenderer renderer = unityObj.AddComponent<MeshRenderer>();
+        MeshFilter meshFilter = unityObj.AddComponent<MeshFilter>();
         renderer.sharedMaterials = sharedMaterials;
         meshFilter.sharedMesh = mesh;
+        return unityObj.transform;
+    }
 
-        //newObj.transform.Rotate(new Vector3(90, 0, 0));
-        return newObj.transform;
+    Transform ImportSkinnedMesh(string gamePath, string path) {
+        GameObject unityObj = new GameObject(Path.GetFileName(path));
+        Sm sm = new Sm(gamePath, path);
+        List<Material> sharedMaterials = new List<Material>();
+        for (int i = 0; i < sm.materials.Length; i++) {
+            Material unityMat = ImportMaterial(gamePath, sm.materials[i]);
+            for (int j = 0; j < sm.materialCounts[i]; j++) {
+                sharedMaterials.Add(unityMat);
+            }
+        }
+        Smd smd = new Smd(gamePath, sm.smd);
+        Mesh mesh = ImportMesh(smd.model.meshes[0], Path.GetFileName(path), true);
+
+        //SkinnedMeshRenderer renderer = unityObj.AddComponent<SkinnedMeshRenderer>();
+        //renderer.sharedMesh = mesh;
+        //renderer.sharedMaterials = sharedMaterials.ToArray();
+
+        MeshRenderer renderer = unityObj.AddComponent<MeshRenderer>();
+        MeshFilter meshFilter = unityObj.AddComponent<MeshFilter>();
+        renderer.sharedMaterials = sharedMaterials.ToArray();
+        meshFilter.sharedMesh = mesh;
+
+        return unityObj.transform;
     }
 
     void RenderMonsterIdle(int idx) {
@@ -180,28 +212,13 @@ public class Importer : MonoBehaviour {
                     Sm sm = new Sm(smPath);
 
                     string smdPath = Path.Combine(gameFolder, sm.smd);
-                    Mesh mesh = ImportSMD(smdPath, true);
+                    Mesh mesh = ImportSmd(smdPath, true);
 
                     Material[] materials = new Material[sm.materials.Length];
                     List<Material> materialIndices = new List<Material>();
-                    int submeshCounter = 0;
 
                     for(int i = 0; i < materials.Length; i++) {
-                        string tex = null;
-                        Mat mat = new Mat(Path.Combine(gameFolder, sm.materials[i]));
-                        foreach(var graphInstance in mat.graphs) {
-                            if (graphInstance.baseTex != null) {
-                                tex = graphInstance.baseTex;
-                                break;
-                            }
-                        }
-                        Material unityMat = Instantiate(Resources.Load<Material>("Default"));
-                        unityMat.name = Path.GetFileNameWithoutExtension(sm.materials[i]);
-                        if(tex != null) {
-                            Debug.LogWarning("READING DDS " + Path.Combine(gameFolder, tex));
-                            Texture2D unityTex = DdsTextureLoader.LoadTexture(Path.Combine(gameFolder, tex));
-                            unityMat.mainTexture = unityTex;
-                        }
+                        Material unityMat = ImportMaterial(gameFolder, sm.materials[i]);
                         for(int j = 0; j < sm.materialCounts[i]; j++) {
                             materialIndices.Add(unityMat);
                         }
@@ -267,18 +284,7 @@ public class Importer : MonoBehaviour {
         }
     }
 
-    void ImportSmdAnimations(string smdPath, string astPath, string name) {
-        Transform parent = new GameObject(name).transform;
-        Mesh smd = ImportSMD(smdPath);
-        //Debug.Log(smd.vertices.Length);
-        Ast ast = new Ast(astPath);
-        //Debug.Log(ast.animations.Length);
 
-        for (int i = 0; i < ast.animations.Length; i++) {
-            ImportAnimation(smd, ast, i, Vector3.right * 200 * i, parent);
-            //break;
-        }
-    }
 
 
     Transform ImportAnimation(Mesh mesh, Ast ast, int animation, Vector3 pos, Transform parent = null, string screenName = null, Material[] materials = null, Dictionary<string, Transform> boneDict = null) {
@@ -311,12 +317,25 @@ public class Importer : MonoBehaviour {
         renderer.rootBone = bones[0];
         renderer.sharedMesh = mesh;
 
-        newObj.AddComponent<AnimationComponent>().SetData(bones, renderer, ast.animations[animation], screenName, screenSize, crf);
+        newObj.AddComponent<AnimationComponent>().SetData(bones, renderer, ast.animations[animation], screenName, renderSize, screenSize, crf);
 
         newObj.transform.Translate(pos);
         newObj.transform.Rotate(new Vector3(90, 0, 0));
         if(parent != null) newObj.transform.SetParent(parent);
         return newObj.transform;
+    }
+
+    void ImportSmdAnimations(string smdPath, string astPath, string name) {
+        Transform parent = new GameObject(name).transform;
+        Mesh smd = ImportSmd(smdPath);
+        //Debug.Log(smd.vertices.Length);
+        Ast ast = new Ast(astPath);
+        //Debug.Log(ast.animations.Length);
+
+        for (int i = 0; i < ast.animations.Length; i++) {
+            ImportAnimation(smd, ast, i, Vector3.right * 200 * i, parent);
+            //break;
+        }
     }
 
     Vector3 TranslationFromMatrix(float[] transform) {
@@ -348,6 +367,12 @@ public class Importer : MonoBehaviour {
 
         bones[boneIndex] = bone;
         if(boneDict != null) boneDict[bone.name] = bone;
+    }
+
+
+    Mesh ImportSmd(string path, bool useSubmeshes = false) {
+        Smd smd = new Smd(path);
+        return ImportMesh(smd.model.meshes[0], Path.GetFileName(path), useSubmeshes);
     }
 
     Mesh ImportMesh(PoeMesh poeMesh, string name, bool useSubmeshes) {
@@ -409,8 +434,5 @@ public class Importer : MonoBehaviour {
     }
 
 
-    Mesh ImportSMD(string path, bool useSubmeshes = false) {
-        Smd smd = new Smd(path);
-        return ImportMesh(smd.model.meshes[0], Path.GetFileName(path), useSubmeshes);
-    }
+
 }
