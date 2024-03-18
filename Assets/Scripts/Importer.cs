@@ -4,6 +4,7 @@ using PoeFormats;
 using System.IO;
 using System.Collections.Generic;
 using UnityDds;
+using System;
 
 [ExecuteInEditMode]
 public class Importer : MonoBehaviour {
@@ -60,7 +61,7 @@ public class Importer : MonoBehaviour {
 
         if (importSMD) {
             importSMD = false;
-            string smdPath = EditorUtility.OpenFilePanel("Import smd", importFolder, "sm,fmt,ao");
+            string smdPath = EditorUtility.OpenFilePanel("Import smd", importFolder, "sm,fmt,ao,tgt");
             string smdPath2 = smdPath.Substring(gameFolder.Length + 1);
             Transform t = ImportObject(gameFolder, smdPath2);
             t.Rotate(90, 0, 0);
@@ -105,6 +106,8 @@ public class Importer : MonoBehaviour {
             return ImportFixedMesh(gamePath, path);
         } else if (extension == ".sm") {
             return ImportSkinnedMesh(gamePath, path);
+        } else if (extension == ".tgt") {
+            return ImportTile(gamePath, path);
         } else {
             Debug.LogError("MESH EXTENSION NOT SUPPORTED FOR " + path);
         }
@@ -114,8 +117,33 @@ public class Importer : MonoBehaviour {
     static HashSet<string> invisGraphs = new HashSet<string> {
         "Metadata/Effects/Graphs/General/FurV2.fxgraph",
         "Metadata/Effects/Graphs/General/FurV3.fxgraph",
-        "Metadata/Effects/Graphs/General/FurSecondPass.fxgraph"
+        "Metadata/Effects/Graphs/General/FurSecondPass.fxgraph",
+        "Metadata/Effects/Graphs/General/ForceOpaqueShadowOnly.fxgraph"
     };
+
+    Transform ImportTile(string gamePath, string path) {
+        Tgt tgt = new Tgt(gamePath, path);
+        Debug.Log($"SIZE {tgt.sizeX}x{tgt.sizeY}");
+        string meshName = Path.GetFileNameWithoutExtension(path);
+        Transform root = new GameObject().transform;
+        for(int y = 0; y < tgt.sizeY; y++) {
+            for(int x = 0; x < tgt.sizeX; x++) {    
+                Debug.Log(tgt.GetTgmPath(x, y));
+                Tgm tgm = tgt.GetTgm(x, y);
+                if(tgm.model.meshCount > 0) {
+                    GameObject subtile = new GameObject($"{x}, {y}");
+                    subtile.transform.SetParent(root, false);
+                    subtile.transform.localPosition = new Vector3(x * 250, y * -250, 0);
+                    Mesh mesh = ImportMesh(tgm.model.meshes[0], $"meshName_{x}_{y}", false);
+                    MeshFilter filter = subtile.AddComponent<MeshFilter>();
+                    filter.sharedMesh = mesh;
+                    MeshRenderer renderer = subtile.AddComponent<MeshRenderer>();
+                    renderer.sharedMaterial = Resources.Load<Material>("Default");
+                }
+            }
+        }
+        return root;
+    }
 
     Material ImportMaterial(string gamePath, string path) {
         string tex = null;
@@ -139,6 +167,8 @@ public class Importer : MonoBehaviour {
             Debug.LogWarning("READING DDS " + Path.Combine(gameFolder, tex));
             Texture2D unityTex = DdsTextureLoader.LoadTexture(Path.Combine(gameFolder, tex));
             unityMat.mainTexture = unityTex;
+        } else {
+            Debug.LogError(path + "MISSING BASE TEXTURE");
         }
         return unityMat;
     }
