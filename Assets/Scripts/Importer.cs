@@ -8,6 +8,7 @@ using UnityDds;
 [ExecuteInEditMode]
 public class Importer : MonoBehaviour {
     public string gameFolder = @"E:\Extracted\PathOfExile\3.21.Crucible";
+    public string importFolder = @"E:\Extracted\PathOfExile\3.21.Crucible";
     public bool importSMD;
     public bool importAOC;
 
@@ -59,13 +60,11 @@ public class Importer : MonoBehaviour {
 
         if (importSMD) {
             importSMD = false;
-            string smdPath = EditorUtility.OpenFilePanel("Import smd", Path.Combine(gameFolder, "art/models/monsters"), "smd,fmt");
-            Mesh m = ImportSmd(smdPath);
-            GameObject smdObj = new GameObject(Path.GetFileName(smdPath));
-            MeshFilter mf = smdObj.AddComponent<MeshFilter>();
-            mf.sharedMesh = m;
-            MeshRenderer mr = smdObj.AddComponent<MeshRenderer>();
-            mr.sharedMaterial = Resources.Load<Material>("Default");
+            string smdPath = EditorUtility.OpenFilePanel("Import smd", importFolder, "sm,fmt,ao");
+            string smdPath2 = smdPath.Substring(gameFolder.Length + 1);
+            Transform t = ImportObject(gameFolder, smdPath2);
+            t.Rotate(90, 0, 0);
+            importFolder = Path.GetDirectoryName(smdPath);
         } else if (importAOC) {
             importAOC = false;
             string aocPath = EditorUtility.OpenFilePanel("Import aoc", Path.Combine(gameFolder, "metadata/monsters"), "aoc");
@@ -104,6 +103,8 @@ public class Importer : MonoBehaviour {
             }
         } else if (extension == ".fmt") {
             return ImportFixedMesh(gamePath, path);
+        } else if (extension == ".sm") {
+            return ImportSkinnedMesh(gamePath, path);
         } else {
             Debug.LogError("MESH EXTENSION NOT SUPPORTED FOR " + path);
         }
@@ -396,6 +397,7 @@ public class Importer : MonoBehaviour {
         Mesh mesh = new Mesh();
         mesh.vertices = verts;
         mesh.uv = uvs;
+        if (verts.Length > 65535) mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
         mesh.triangles = tris;
 
         if (useSubmeshes) {
