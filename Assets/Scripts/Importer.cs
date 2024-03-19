@@ -9,26 +9,38 @@ using System;
 [ExecuteInEditMode]
 public class Importer : MonoBehaviour {
     public string gameFolder = @"E:\Extracted\PathOfExile\3.21.Crucible";
-    public string importFolder = @"E:\Extracted\PathOfExile\3.21.Crucible";
-    public bool importSMD;
-    public bool importAOC;
 
+    [Header("Debug")]
+    public string importFolder = @"E:\Extracted\PathOfExile\3.21.Crucible";
+    public bool importObject;
+    public bool importSmdAst;
+
+    [Header("Monster")]
     public int importMonsterIdx;
     public string importMonsterId;
     public string importMonsterName;
-
+    public bool decrementMonsterIdx;
+    public bool incrementMonsterIdx;
     public string importMonsterAction;
     public bool importMonster;
-    public bool importSmdAst;
+
+    [Header("Screenshot")]
     public int renderSize;
     public int screenSize;
     public int crf;
 
-    public bool decrementMonsterIdx;
-    public bool incrementMonsterIdx;
+    [Header("Asset Bank")]
+    Dictionary<string, Material> materials = new Dictionary<string, Material>();
+    Dictionary<string, Texture2D> textures = new Dictionary<string, Texture2D>();
+    public Dictionary<Material, int> materialRefCounts = new Dictionary<Material, int>();
+    Dictionary<Texture2D, int> textureRefCounts = new Dictionary<Texture2D, int>();
+    [SerializeField]
+    List<Material> materialList;
+    [SerializeField]
+    List<Texture2D> textureList;
 
-    public bool testFmt;
-
+    [SerializeField]
+    public bool listRefCounts;
 
     Dictionary<int, string> monsterIds;
     Dictionary<int, string> monsterNames;
@@ -59,21 +71,13 @@ public class Importer : MonoBehaviour {
             importMonsterId = monsterIds[importMonsterIdx];
         } else importMonsterName = "-";
 
-        if (importSMD) {
-            importSMD = false;
+        if (importObject) {
+            importObject = false;
             string smdPath = EditorUtility.OpenFilePanel("Import smd", importFolder, "sm,fmt,ao,tgt");
             string smdPath2 = smdPath.Substring(gameFolder.Length + 1);
             Transform t = ImportObject(gameFolder, smdPath2);
             t.Rotate(90, 0, 0);
             importFolder = Path.GetDirectoryName(smdPath);
-        } else if (importAOC) {
-            importAOC = false;
-            string aocPath = EditorUtility.OpenFilePanel("Import aoc", Path.Combine(gameFolder, "metadata/monsters"), "aoc");
-            Aoc aoc = new Aoc(aocPath);
-            string astPath = Path.Combine(gameFolder, aoc.skeleton);
-            Sm sm = new Sm(Path.Combine(gameFolder, aoc.skin));
-            string smdPath = Path.Combine(gameFolder, sm.smd);
-            ImportSmdAnimations(smdPath, astPath, Path.GetFileName(aocPath));
         } else if (importMonster) {
             importMonster = false;
             RenderMonsterIdle(importMonsterIdx);
@@ -82,9 +86,11 @@ public class Importer : MonoBehaviour {
             string smdPath = EditorUtility.OpenFilePanel("Import smd", @"F:\Extracted\PathOfExile\3.22.Ancestor\monsters\genericbiped\bipedmedium\modelvariants", "smd");
             string astPath = EditorUtility.OpenFilePanel("Import ast", @"F:\Extracted\PathOfExile\3.22.Ancestor\monsters\genericbiped\bipedmedium\animations", "ast");
             ImportSmdAnimations(smdPath, astPath, Path.GetFileName(astPath));
-        } else if (testFmt) {
-            testFmt = false;
-            
+        } else if (listRefCounts) {
+            listRefCounts = false;
+            foreach(Material mat in materialRefCounts.Keys) {
+                Debug.Log($"{mat.name}: {materialRefCounts[mat]}");
+            }
         }
 
     }
@@ -126,6 +132,7 @@ public class Importer : MonoBehaviour {
         Debug.Log($"SIZE {tgt.sizeX}x{tgt.sizeY}");
         string meshName = Path.GetFileNameWithoutExtension(path);
         Transform root = new GameObject().transform;
+        root.name = Path.GetFileNameWithoutExtension(path);
         for(int y = 0; y < tgt.sizeY; y++) {
             for(int x = 0; x < tgt.sizeX; x++) {    
                 Debug.Log(tgt.GetTgmPath(x, y));
@@ -134,18 +141,49 @@ public class Importer : MonoBehaviour {
                     GameObject subtile = new GameObject($"{x}, {y}");
                     subtile.transform.SetParent(root, false);
                     subtile.transform.localPosition = new Vector3(x * 250, y * -250, 0);
-                    Mesh mesh = ImportMesh(tgm.model.meshes[0], $"meshName_{x}_{y}", false);
+                    Mesh mesh = ImportMesh(tgm.model.meshes[0], $"meshName_{x}_{y}", true);
+                    var materialNames = tgt.GetSubtileMaterials(x, y);
+                    Material[] sharedmaterials = new Material[materialNames.Length];
+                    for(int i = 0; i < sharedmaterials.Length; i++) {
+                        sharedmaterials[i] = ImportMaterial(gamePath, materialNames[i]);
+                    }
+                    subtile.AddComponent<AssetCounterComponent>().SetMaterials(this, sharedmaterials);
                     MeshFilter filter = subtile.AddComponent<MeshFilter>();
                     filter.sharedMesh = mesh;
                     MeshRenderer renderer = subtile.AddComponent<MeshRenderer>();
-                    renderer.sharedMaterial = Resources.Load<Material>("Default");
+                    renderer.sharedMaterials = sharedmaterials;
                 }
             }
         }
         return root;
     }
 
+    public void DereferenceMaterial(Material mat) {
+        if (materialRefCounts.ContainsKey(mat)) {
+            materialRefCounts[mat] = materialRefCounts[mat] - 1;
+            if (materialRefCounts[mat] > 0) {
+                //Debug.Log($"dereferencing {mat.name} - new count is {materialRefCounts[mat]}");
+                return;
+            }
+            //Debug.Log($"dereferencing {mat.name} - NO REFS LEFT");
+            materialRefCounts.Remove(mat);
+        }
+        Debug.Log("REMOVING MATERIAL " + mat.name);
+        string remove = null;
+        foreach(string key in materials.Keys) {
+            if (materials[key] == mat) remove = key;
+        }
+        if(remove != null) {
+            materials.Remove(remove);
+        }
+        materialList.Remove(mat);
+    }
+
     Material ImportMaterial(string gamePath, string path) {
+        if (materials.ContainsKey(path)) {
+            Debug.Log("reusing material " + path);
+            return materials[path];
+        }
         string tex = null;
         bool invis = false;
         Mat mat = new Mat(gameFolder, path);
@@ -158,18 +196,23 @@ public class Importer : MonoBehaviour {
                 break;
             }
         }
+        Material unityMat;
         if(invis) {
-            return Resources.Load<Material>("Invisible");
-        }
-        Material unityMat = Instantiate(Resources.Load<Material>("Default"));
-        unityMat.name = Path.GetFileNameWithoutExtension(path);
-        if (tex != null) {
-            Debug.LogWarning("READING DDS " + Path.Combine(gameFolder, tex));
-            Texture2D unityTex = DdsTextureLoader.LoadTexture(Path.Combine(gameFolder, tex));
-            unityMat.mainTexture = unityTex;
+            unityMat = Resources.Load<Material>("Invisible");
         } else {
-            Debug.LogError(path + "MISSING BASE TEXTURE");
+            unityMat = Instantiate(Resources.Load<Material>("MatBase"));
+            if (tex != null) {
+                Debug.LogWarning("READING DDS " + Path.Combine(gameFolder, tex));
+                Texture2D unityTex = DdsTextureLoader.LoadTexture(Path.Combine(gameFolder, tex));
+                unityMat.mainTexture = unityTex;
+            } else {
+                Debug.LogError(path + "MISSING BASE TEXTURE");
+            }
         }
+        unityMat.name = Path.GetFileNameWithoutExtension(path);
+        materials[path] = unityMat;
+        materialRefCounts[unityMat] = 0;
+        materialList.Add(unityMat);
         return unityMat;
     }
 
@@ -190,6 +233,7 @@ public class Importer : MonoBehaviour {
         MeshRenderer renderer = unityObj.AddComponent<MeshRenderer>();
         MeshFilter meshFilter = unityObj.AddComponent<MeshFilter>();
         renderer.sharedMaterials = sharedMaterials;
+        unityObj.AddComponent<AssetCounterComponent>().SetMaterials(this, sharedMaterials);
         meshFilter.sharedMesh = mesh;
         return unityObj.transform;
     }
@@ -209,11 +253,15 @@ public class Importer : MonoBehaviour {
 
         //SkinnedMeshRenderer renderer = unityObj.AddComponent<SkinnedMeshRenderer>();
         //renderer.sharedMesh = mesh;
-        //renderer.sharedMaterials = sharedMaterials.ToArray();
+        //
 
         MeshRenderer renderer = unityObj.AddComponent<MeshRenderer>();
+        var materialsArray = sharedMaterials.ToArray();
+
+        unityObj.AddComponent<AssetCounterComponent>().SetMaterials(this, materialsArray);
+        renderer.sharedMaterials = materialsArray;
+
         MeshFilter meshFilter = unityObj.AddComponent<MeshFilter>();
-        renderer.sharedMaterials = sharedMaterials.ToArray();
         meshFilter.sharedMesh = mesh;
 
         return unityObj.transform;
@@ -341,6 +389,7 @@ public class Importer : MonoBehaviour {
             Material mat = Resources.Load<Material>("Default");
             renderer.sharedMaterial = mat;
         } else {
+            newObj.AddComponent<AssetCounterComponent>().SetMaterials(this, materials);
             renderer.sharedMaterials = materials;
         }
 
