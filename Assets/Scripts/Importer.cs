@@ -13,6 +13,7 @@ public class Importer : MonoBehaviour {
     [Header("Debug")]
     public string importFolder = @"E:\Extracted\PathOfExile\3.21.Crucible";
     public bool importObject;
+    public bool importDirectory;
     public bool importSmdAst;
 
     [Header("Monster")]
@@ -78,6 +79,11 @@ public class Importer : MonoBehaviour {
             Transform t = ImportObject(gameFolder, smdPath2);
             t.Rotate(90, 0, 0);
             importFolder = Path.GetDirectoryName(smdPath);
+        } else if (importDirectory) {
+            importDirectory = false;
+            string dirpath = EditorUtility.OpenFolderPanel("Import directory", importFolder, "");
+            ImportTiles(gameFolder, dirpath);
+            importFolder = dirpath;
         } else if (importMonster) {
             importMonster = false;
             RenderMonsterIdle(importMonsterIdx);
@@ -88,7 +94,7 @@ public class Importer : MonoBehaviour {
             ImportSmdAnimations(smdPath, astPath, Path.GetFileName(astPath));
         } else if (listRefCounts) {
             listRefCounts = false;
-            foreach(Material mat in materialRefCounts.Keys) {
+            foreach (Material mat in materialRefCounts.Keys) {
                 Debug.Log($"{mat.name}: {materialRefCounts[mat]}");
             }
         }
@@ -120,42 +126,75 @@ public class Importer : MonoBehaviour {
         return null;
     }
 
-    static HashSet<string> invisGraphs = new HashSet<string> {
-        "Metadata/Effects/Graphs/General/FurV2.fxgraph",
-        "Metadata/Effects/Graphs/General/FurV3.fxgraph",
-        "Metadata/Effects/Graphs/General/FurSecondPass.fxgraph",
-        "Metadata/Effects/Graphs/General/ForceOpaqueShadowOnly.fxgraph"
-    };
+    void ImportTiles(string gamePath, string folder) {
+        float xPos = 0;
+        foreach(string path in Directory.EnumerateFiles(folder, "*.tgt")) {
+            string filePath = path.Substring(gameFolder.Length + 1);
+            Transform t = ImportTile(gamePath, filePath, 0);
+            float newPos = xPos + t.position.x;
+            t.localPosition = Vector3.right * xPos;
+            xPos = newPos;
+            t.Rotate(90, 0, 0);
+        }
+    }
 
-    Transform ImportTile(string gamePath, string path) {
+
+    Transform ImportTile(string gamePath, string path, float xPos = 0) {
         Tgt tgt = new Tgt(gamePath, path);
         Debug.Log($"SIZE {tgt.sizeX}x{tgt.sizeY}");
         string meshName = Path.GetFileNameWithoutExtension(path);
-        Transform root = new GameObject().transform;
-        root.name = Path.GetFileNameWithoutExtension(path);
+        GameObject tile = new GameObject();
+        tile.name = Path.GetFileNameWithoutExtension(path);
+        List<Mesh> meshes = new List<Mesh>();
+        List<Material> materials = new List<Material>();
+        List<CombineInstance> combines = new List<CombineInstance>();
         for(int y = 0; y < tgt.sizeY; y++) {
             for(int x = 0; x < tgt.sizeX; x++) {    
                 Debug.Log(tgt.GetTgmPath(x, y));
                 Tgm tgm = tgt.GetTgm(x, y);
                 if(tgm.model.meshCount > 0) {
-                    GameObject subtile = new GameObject($"{x}, {y}");
-                    subtile.transform.SetParent(root, false);
-                    subtile.transform.localPosition = new Vector3(x * 250, y * -250, 0);
-                    Mesh mesh = ImportMesh(tgm.model.meshes[0], $"meshName_{x}_{y}", true);
-                    var materialNames = tgt.GetSubtileMaterials(x, y);
-                    Material[] sharedmaterials = new Material[materialNames.Length];
-                    for(int i = 0; i < sharedmaterials.Length; i++) {
-                        sharedmaterials[i] = ImportMaterial(gamePath, materialNames[i]);
+                    //GameObject subtile = new GameObject($"{x}, {y}");
+                    //subtile.transform.SetParent(root, false);
+                    //subtile.transform.localPosition = new Vector3(x * 250, y * -250, 0);
+
+                    Mesh mesh = ImportMesh(tgm.model.meshes[0], $"meshName_{x}_{y}", true, tgt.GetCombinedShapeLengths(x, y));
+
+                    if(mesh != null) {
+                        for (int i = 0; i < mesh.subMeshCount; i++) {
+                            combines.Add(new CombineInstance() { mesh = mesh, transform = Matrix4x4.Translate(new Vector3(x * 250, y * -250, 0)), subMeshIndex = i });
+                        }
+
+                        var materialNames = tgt.GetSubtileMaterialsCombined(x, y);
+                        //Material[] sharedmaterials = new Material[materialNames.Length];
+                        for (int i = 0; i < materialNames.Length; i++) {
+                            materials.Add(ImportMaterial(gamePath, materialNames[i]));
+
+                            //sharedmaterials[i] = ImportMaterial(gamePath, materialNames[i]);
+                        }
+                        //subtile.AddComponent<AssetCounterComponent>().SetMaterials(this, sharedmaterials);
+                        //MeshFilter filter = subtile.AddComponent<MeshFilter>();
+                        //filter.sharedMesh = mesh;
+                        //MeshRenderer renderer = subtile.AddComponent<MeshRenderer>();
+                        //renderer.sharedMaterials = sharedmaterials;
                     }
-                    subtile.AddComponent<AssetCounterComponent>().SetMaterials(this, sharedmaterials);
-                    MeshFilter filter = subtile.AddComponent<MeshFilter>();
-                    filter.sharedMesh = mesh;
-                    MeshRenderer renderer = subtile.AddComponent<MeshRenderer>();
-                    renderer.sharedMaterials = sharedmaterials;
                 }
             }
         }
-        return root;
+        Mesh combinedMesh = new Mesh();
+        combinedMesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+        combinedMesh.CombineMeshes(combines.ToArray(), false, true, false);
+
+        MeshFilter filter = tile.AddComponent<MeshFilter>();
+        filter.sharedMesh = combinedMesh;
+
+        MeshRenderer renderer = tile.AddComponent<MeshRenderer>();
+        var sharedMaterials = materials.ToArray();
+        renderer.sharedMaterials = sharedMaterials;
+        tile.AddComponent<AssetCounterComponent>().SetMaterials(this, sharedMaterials);
+
+
+        tile.transform.localPosition = Vector3.right * (tgt.sizeX * 250 + xPos);
+        return tile.transform;
     }
 
     public void DereferenceMaterial(Material mat) {
@@ -179,9 +218,16 @@ public class Importer : MonoBehaviour {
         materialList.Remove(mat);
     }
 
+    static HashSet<string> invisGraphs = new HashSet<string> {
+        "Metadata/Effects/Graphs/General/FurV2.fxgraph",
+        "Metadata/Effects/Graphs/General/FurV3.fxgraph",
+        "Metadata/Effects/Graphs/General/FurSecondPass.fxgraph",
+        "Metadata/Effects/Graphs/General/ForceOpaqueShadowOnly.fxgraph",
+    };
+
     Material ImportMaterial(string gamePath, string path) {
         if (materials.ContainsKey(path)) {
-            Debug.Log("reusing material " + path);
+            //Debug.Log("reusing material " + path);
             return materials[path];
         }
         string tex = null;
@@ -191,9 +237,8 @@ public class Importer : MonoBehaviour {
              if (invisGraphs.Contains(graphInstance.parent)) {
                 invis = true;
                 break;
-            } else if (graphInstance.baseTex != null) {
+            } else if (graphInstance.baseTex != null && tex == null) {
                 tex = graphInstance.baseTex;
-                break;
             }
         }
         Material unityMat;
@@ -209,7 +254,16 @@ public class Importer : MonoBehaviour {
                 Debug.LogError(path + "MISSING BASE TEXTURE");
             }
         }
-        unityMat.name = Path.GetFileNameWithoutExtension(path);
+        string matName = path.Substring(4, path.Length - 4);
+        if (matName.ToLower().StartsWith("textures"))
+            matName = matName.Substring("textures/".Length);
+        if (matName.ToLower().StartsWith("models"))
+            matName = matName.Substring("models/".Length);
+        if (matName.ToLower().StartsWith("environment/"))
+            matName = matName.Substring("environment/".Length);
+        if (matName.ToLower().StartsWith("terrain/"))
+            matName = matName.Substring("terrain/".Length);
+        unityMat.name = matName;
         materials[path] = unityMat;
         materialRefCounts[unityMat] = 0;
         materialList.Add(unityMat);
@@ -455,7 +509,7 @@ public class Importer : MonoBehaviour {
         return ImportMesh(smd.model.meshes[0], Path.GetFileName(path), useSubmeshes);
     }
 
-    Mesh ImportMesh(PoeMesh poeMesh, string name, bool useSubmeshes) {
+    Mesh ImportMesh(PoeMesh poeMesh, string name, bool useSubmeshes, int[] combinedShapeSizes = null) {
         if (poeMesh.idx.Length == 0 || poeMesh.vertCount == 0) return null;
         Vector3[] verts = new Vector3[poeMesh.vertCount];
         for (int i = 0; i < verts.Length; i++) {
@@ -480,12 +534,40 @@ public class Importer : MonoBehaviour {
         mesh.triangles = tris;
 
         if (useSubmeshes) {
-            mesh.subMeshCount = poeMesh.shapeOffsets.Length;
-            for (int i = 0; i < mesh.subMeshCount; i++) {
-                mesh.SetSubMesh(i, new UnityEngine.Rendering.SubMeshDescriptor(
-                    poeMesh.shapeOffsets[i],
-                    poeMesh.shapeLengths[i]));
+
+            if(combinedShapeSizes != null) {
+
+                //Debug.Log(name);
+
+                int[] combinedShapeOffsets = new int[combinedShapeSizes.Length];
+                int[] combinedShapeLengths = new int[combinedShapeSizes.Length];
+                int currentShape = 0;
+                for(int i = 0; i < combinedShapeOffsets.Length; i++) {
+                    combinedShapeOffsets[i] = poeMesh.shapeOffsets[currentShape];
+                    combinedShapeLengths[i] = 0;
+                    for (int shape = 0; shape < combinedShapeSizes[i]; shape++) {
+                        combinedShapeLengths[i] = combinedShapeLengths[i] + poeMesh.shapeLengths[currentShape];
+                        currentShape++;
+                    }
+                    //Debug.Log($"{combinedShapeOffsets[i]} {combinedShapeLengths[i]}");
+                }
+
+                mesh.subMeshCount = combinedShapeOffsets.Length;
+                for (int i = 0; i < combinedShapeOffsets.Length; i++) {
+                    mesh.SetSubMesh(i, new UnityEngine.Rendering.SubMeshDescriptor(
+                        combinedShapeOffsets[i],
+                        combinedShapeLengths[i]));
+                }
+
+            } else {
+                mesh.subMeshCount = poeMesh.shapeOffsets.Length;
+                for (int i = 0; i < mesh.subMeshCount; i++) {
+                    mesh.SetSubMesh(i, new UnityEngine.Rendering.SubMeshDescriptor(
+                        poeMesh.shapeOffsets[i],
+                        poeMesh.shapeLengths[i]));
+                }
             }
+
         }
 
         mesh.RecalculateNormals();
