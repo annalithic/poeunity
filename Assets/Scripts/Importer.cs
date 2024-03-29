@@ -141,7 +141,7 @@ public class Importer : MonoBehaviour {
 
     Transform ImportTile(string gamePath, string path, float xPos = 0) {
         Tgt tgt = new Tgt(gamePath, path);
-        Debug.Log($"SIZE {tgt.sizeX}x{tgt.sizeY}");
+        //Debug.Log($"SIZE {tgt.sizeX}x{tgt.sizeY}");
         string meshName = Path.GetFileNameWithoutExtension(path);
         GameObject tile = new GameObject();
         tile.name = Path.GetFileNameWithoutExtension(path);
@@ -218,56 +218,17 @@ public class Importer : MonoBehaviour {
         materialList.Remove(mat);
     }
 
-    static HashSet<string> invisGraphs = new HashSet<string> {
-        "Metadata/Effects/Graphs/General/FurV2.fxgraph",
-        "Metadata/Effects/Graphs/General/FurV3.fxgraph",
-        "Metadata/Effects/Graphs/General/FurSecondPass.fxgraph",
-        "Metadata/Effects/Graphs/General/ForceOpaqueShadowOnly.fxgraph",
-    };
 
     Material ImportMaterial(string gamePath, string path) {
         if (materials.ContainsKey(path)) {
             //Debug.Log("reusing material " + path);
             return materials[path];
         }
-        string tex = null;
-        bool invis = false;
-        Mat mat = new Mat(gameFolder, path);
-        foreach (var graphInstance in mat.graphs) {
-             if (invisGraphs.Contains(graphInstance.parent)) {
-                invis = true;
-                break;
-            } else if (graphInstance.baseTex != null && tex == null) {
-                tex = graphInstance.baseTex;
-            }
-        }
-        Material unityMat;
-        if(invis) {
-            unityMat = Resources.Load<Material>("Invisible");
-        } else {
-            unityMat = Instantiate(Resources.Load<Material>("MatBase"));
-            if (tex != null) {
-                Debug.LogWarning("READING DDS " + Path.Combine(gameFolder, tex));
-                Texture2D unityTex = DdsTextureLoader.LoadTexture(Path.Combine(gameFolder, tex));
-                unityMat.mainTexture = unityTex;
-            } else {
-                Debug.LogError(path + "MISSING BASE TEXTURE");
-            }
-        }
-        string matName = path.Substring(4, path.Length - 4);
-        if (matName.ToLower().StartsWith("textures"))
-            matName = matName.Substring("textures/".Length);
-        if (matName.ToLower().StartsWith("models"))
-            matName = matName.Substring("models/".Length);
-        if (matName.ToLower().StartsWith("environment/"))
-            matName = matName.Substring("environment/".Length);
-        if (matName.ToLower().StartsWith("terrain/"))
-            matName = matName.Substring("terrain/".Length);
-        unityMat.name = matName;
-        materials[path] = unityMat;
-        materialRefCounts[unityMat] = 0;
-        materialList.Add(unityMat);
-        return unityMat;
+        Material mat = MaterialImporter.Import(gamePath, path);
+        materials[path] = mat;
+        materialRefCounts[mat] = 0;
+        materialList.Add(mat);
+        return mat;
     }
 
     Transform ImportFixedMesh(string gamePath, string path) {
@@ -537,13 +498,14 @@ public class Importer : MonoBehaviour {
 
             if(combinedShapeSizes != null) {
 
-                //Debug.Log(name);
+                //Debug.Log(name);    
 
                 int[] combinedShapeOffsets = new int[combinedShapeSizes.Length];
                 int[] combinedShapeLengths = new int[combinedShapeSizes.Length];
                 int currentShape = 0;
                 for(int i = 0; i < combinedShapeOffsets.Length; i++) {
                     combinedShapeOffsets[i] = poeMesh.shapeOffsets[currentShape];
+                    //Debug.Log($"COMBINEING {combinedShapeSizes[i]} SHAPES");
                     combinedShapeLengths[i] = 0;
                     for (int shape = 0; shape < combinedShapeSizes[i]; shape++) {
                         combinedShapeLengths[i] = combinedShapeLengths[i] + poeMesh.shapeLengths[currentShape];
