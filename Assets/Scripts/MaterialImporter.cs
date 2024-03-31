@@ -15,9 +15,15 @@ public static class MaterialImporter {
     };
 
     static Dictionary<string, string> shaderGraphs = new Dictionary<string, string> {
+        {"Metadata/Materials/MetalRough.fxgraph", "Shader Graphs/MetalRough"},
         {"Metadata/Materials/MetalRoughBN.fxgraph", "Shader Graphs/MetalRoughBN"},
         {"Metadata/Materials/DielectricSpecGloss.fxgraph", "Shader Graphs/DielectricSpecGloss"},
-        {"Metadata/Materials/DielectricSpecGlossBN.fxgraph", "Shader Graphs/DielectricSpecGloss"}   
+        {"Metadata/Materials/DielectricSpecGlossBN.fxgraph", "Shader Graphs/DielectricSpecGloss"},
+        {"Metadata/Materials/SpecGlossSpecMaskOpaque.fxgraph" ,"Shader Graphs/SpecGlossSpecMaskOpaque"},
+        {"Metadata/Materials/SpecGlossSpecMaskOpaqueBN.fxgraph" ,"Shader Graphs/SpecGlossSpecMaskOpaque"},
+        {"Metadata/Materials/SpecGlossSpecMask.fxgraph" ,"Shader Graphs/SpecGlossSpecMask"},
+        {"Metadata/Materials/SpecGloss.fxgraph", "Shader Graphs/SpecGloss" },
+        {"Metadata/Materials/AnisotropicSpecGloss.fxgraph", "Shader Graphs/SpecGloss" }
     };
 
     public static Material Import(string gamePath, string path) {
@@ -51,6 +57,7 @@ public static class MaterialImporter {
             unityMat = Resources.Load<Material>("Invisible");
         } else {
             unityMat = Material.Instantiate(Resources.Load<Material>("MatBase"));
+            
             if (tex != null) {
                 Debug.LogWarning("READING DDS " + Path.Combine(gamePath, tex));
                 Texture2D unityTex = DdsTextureLoader.LoadTexture(Path.Combine(gamePath, tex));
@@ -59,6 +66,7 @@ public static class MaterialImporter {
             } else {
                 Debug.LogError(path + "MISSING BASE TEXTURE");
             }
+            
         }
         unityMat.name = GetMaterialName(path);
         return unityMat;
