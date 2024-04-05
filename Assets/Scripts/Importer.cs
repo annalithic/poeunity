@@ -240,21 +240,43 @@ public class Importer : MonoBehaviour {
     Transform ImportFixedMesh(string gamePath, string path) {
         GameObject unityObj = new GameObject(Path.GetFileName(path));
         Fmt fmt = new Fmt(gamePath, path);
-        Material[] sharedMaterials = new Material[fmt.shapeMaterials.Length];
+        List<Material> sharedMaterials = new List<Material>();
 
         Dictionary<string, Material> materials = new Dictionary<string, Material>();
+        List<int> combinedShapeSizes = new List<int>();
+
+        string oldMaterial = "";
+        int combinedShapeCount = 0;
+
         for (int i = 0; i < fmt.shapeMaterials.Length; i++) {
             string material = fmt.shapeMaterials[i];
-            if (!materials.ContainsKey(material)) {
-                materials[material] = ImportMaterial(gamePath, material);
+            if (oldMaterial != material) {
+                if (oldMaterial != "") {
+                    combinedShapeSizes.Add(combinedShapeCount);
+                    if (!materials.ContainsKey(oldMaterial)) {
+                        materials[oldMaterial] = ImportMaterial(gamePath, oldMaterial);
+                    }
+                    sharedMaterials.Add(materials[oldMaterial]);
+                }
+
+                combinedShapeCount = 1;
+                oldMaterial = material;
+            } else {
+                combinedShapeCount++;
             }
-            sharedMaterials[i] = (materials[material]);
         }
-        Mesh mesh = ImportMesh(fmt.meshes[0], Path.GetFileName(path), true);
+        combinedShapeSizes.Add(combinedShapeCount);
+        if (!materials.ContainsKey(oldMaterial)) {
+            materials[oldMaterial] = ImportMaterial(gamePath, oldMaterial);
+        }
+        sharedMaterials.Add(materials[oldMaterial]);
+
+        Mesh mesh = ImportMesh(fmt.meshes[0], Path.GetFileName(path), true, combinedShapeSizes.ToArray());
         MeshRenderer renderer = unityObj.AddComponent<MeshRenderer>();
         MeshFilter meshFilter = unityObj.AddComponent<MeshFilter>();
-        renderer.sharedMaterials = sharedMaterials;
-        unityObj.AddComponent<AssetCounterComponent>().SetMaterials(this, sharedMaterials);
+        var materialArray = sharedMaterials.ToArray();
+        renderer.sharedMaterials = materialArray;
+        unityObj.AddComponent<AssetCounterComponent>().SetMaterials(this, materialArray);
         meshFilter.sharedMesh = mesh;
         return unityObj.transform;
     }
