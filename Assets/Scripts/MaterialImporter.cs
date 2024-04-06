@@ -39,8 +39,9 @@ public static class MaterialImporter {
                 foreach(string paramName in graphInstance.parameters.Keys) {
                     Mat.Parameter parameter = graphInstance.parameters[paramName];
                     if(parameter.path != null) {
-                        Debug.LogWarning("IMPORTING TEXTURE " + parameter.path);
+                        //Debug.LogWarning("IMPORTING TEXTURE " + parameter.path);
                         Texture2D paramTex = DdsTextureLoader.LoadTexture(Path.Combine(gamePath, parameter.path), !parameter.srgb);
+                        paramTex.name = parameter.path;
                         graphMaterial.SetTexture("_" + paramName, paramTex);
                     } else if (parameter.hasValue) {
                         graphMaterial.SetFloat("_" + paramName, parameter.value);
@@ -59,12 +60,12 @@ public static class MaterialImporter {
             unityMat = Material.Instantiate(Resources.Load<Material>("MatBase"));
             
             if (tex != null) {
-                Debug.LogWarning("READING DDS " + Path.Combine(gamePath, tex));
+                //Debug.LogWarning("READING DDS " + Path.Combine(gamePath, tex));
                 Texture2D unityTex = DdsTextureLoader.LoadTexture(Path.Combine(gamePath, tex));
                 unityTex.name = tex;
                 unityMat.mainTexture = unityTex;
             } else {
-                Debug.LogError(path + "MISSING BASE TEXTURE");
+                Debug.Log(path + "MISSING BASE TEXTURE");
             }
             
         }

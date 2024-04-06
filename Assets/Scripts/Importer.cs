@@ -84,9 +84,23 @@ public class Importer : MonoBehaviour {
             string dirpath = EditorUtility.OpenFolderPanel("Import directory", importFolder, "");
             ImportTiles(gameFolder, dirpath);
 
-            foreach (string fmt in Directory.EnumerateFiles(dirpath, "*.fmt")) {
+            float xPos = 0;
+            foreach (string fmt in Directory.EnumerateFiles(dirpath, "*.fmt", SearchOption.AllDirectories)) {
                 string filePath = fmt.Substring(gameFolder.Length + 1);
-                Transform t = ImportFixedMesh(gameFolder, filePath);
+                Transform t = ImportFixedMesh(gameFolder, filePath, true);
+                float xMin = t.position.x;
+                float xMax = t.position.y;
+                t.localPosition = Vector3.right * (xPos - xMin);
+                xPos = xPos - xMin + xMax + 5;
+                t.Rotate(90, 0, 0);
+            }
+            foreach (string fmt in Directory.EnumerateFiles(dirpath, "*.sm")) {
+                string filePath = fmt.Substring(gameFolder.Length + 1);
+                Transform t = ImportSkinnedMesh(gameFolder, filePath, true);
+                float xMin = t.position.x;
+                float xMax = t.position.y;
+                t.localPosition = Vector3.right * (xPos - xMin);
+                xPos = xPos - xMin + xMax + 5;
                 t.Rotate(90, 0, 0);
             }
             importFolder = dirpath;
@@ -237,9 +251,11 @@ public class Importer : MonoBehaviour {
         return mat;
     }
 
-    Transform ImportFixedMesh(string gamePath, string path) {
+    Transform ImportFixedMesh(string gamePath, string path, bool shiftX = false) {
         GameObject unityObj = new GameObject(Path.GetFileName(path));
         Fmt fmt = new Fmt(gamePath, path);
+        if (fmt.meshes[0].vertCount == 0) return new GameObject().transform;
+
         List<Material> sharedMaterials = new List<Material>();
 
         Dictionary<string, Material> materials = new Dictionary<string, Material>();
@@ -278,10 +294,12 @@ public class Importer : MonoBehaviour {
         renderer.sharedMaterials = materialArray;
         unityObj.AddComponent<AssetCounterComponent>().SetMaterials(this, materialArray);
         meshFilter.sharedMesh = mesh;
+        if (shiftX) unityObj.transform.position = new Vector3(fmt.bbox.x1, fmt.bbox.x2, 0);
+
         return unityObj.transform;
     }
 
-    Transform ImportSkinnedMesh(string gamePath, string path) {
+    Transform ImportSkinnedMesh(string gamePath, string path, bool shiftX = false) {
         GameObject unityObj = new GameObject(Path.GetFileName(path));
         Sm sm = new Sm(gamePath, path);
         Material[] materials = new Material[sm.materials.Length];
@@ -303,6 +321,7 @@ public class Importer : MonoBehaviour {
         MeshFilter meshFilter = unityObj.AddComponent<MeshFilter>();
         meshFilter.sharedMesh = mesh;
 
+        if (shiftX) unityObj.transform.position = new Vector3(smd.bbox.x1, smd.bbox.x2, 0);
         return unityObj.transform;
     }
 
