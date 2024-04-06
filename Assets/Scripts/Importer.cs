@@ -94,7 +94,7 @@ public class Importer : MonoBehaviour {
                 xPos = xPos - xMin + xMax + 5;
                 t.Rotate(90, 0, 0);
             }
-            foreach (string fmt in Directory.EnumerateFiles(dirpath, "*.sm")) {
+            foreach (string fmt in Directory.EnumerateFiles(dirpath, "*.sm", SearchOption.AllDirectories)) {
                 string filePath = fmt.Substring(gameFolder.Length + 1);
                 Transform t = ImportSkinnedMesh(gameFolder, filePath, true);
                 float xMin = t.position.x;
@@ -227,7 +227,7 @@ public class Importer : MonoBehaviour {
             //Debug.Log($"dereferencing {mat.name} - NO REFS LEFT");
             materialRefCounts.Remove(mat);
         }
-        Debug.Log("REMOVING MATERIAL " + mat.name);
+        //Debug.Log("REMOVING MATERIAL " + mat.name);
         string remove = null;
         foreach(string key in materials.Keys) {
             if (materials[key] == mat) remove = key;
@@ -240,9 +240,8 @@ public class Importer : MonoBehaviour {
 
 
     Material ImportMaterial(string gamePath, string path) {
-        if (materials.ContainsKey(path)) {
-            //Debug.Log("reusing material " + path);
-            return materials[path];
+        if(path == "") {
+            return Resources.Load<Material>("Invisible");
         }
         Material mat = MaterialImporter.Import(gamePath, path);
         materials[path] = mat;
@@ -254,7 +253,7 @@ public class Importer : MonoBehaviour {
     Transform ImportFixedMesh(string gamePath, string path, bool shiftX = false) {
         GameObject unityObj = new GameObject(Path.GetFileName(path));
         Fmt fmt = new Fmt(gamePath, path);
-        if (fmt.meshes[0].vertCount == 0) return new GameObject().transform;
+        if (fmt.meshes.Length == 0 || fmt.meshes[0].vertCount == 0) return new GameObject().transform;
 
         List<Material> sharedMaterials = new List<Material>();
 

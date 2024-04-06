@@ -12,7 +12,7 @@ public class AssetCounterComponent : MonoBehaviour
         this.importer = importer;
         this.materials = materials;
         foreach (Material mat in materials)
-            importer.materialRefCounts[mat] = importer.materialRefCounts[mat] + 1;
+            if(importer.materialRefCounts.ContainsKey(mat)) importer.materialRefCounts[mat] = importer.materialRefCounts[mat] + 1;
     }
 
     private void OnDestroy() {
