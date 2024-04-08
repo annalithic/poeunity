@@ -74,36 +74,40 @@ public class Importer : MonoBehaviour {
 
         if (importObject) {
             importObject = false;
-            string smdPath = EditorUtility.OpenFilePanel("Import smd", importFolder, "sm,fmt,ao,tgt");
-            string smdPath2 = smdPath.Substring(gameFolder.Length + 1);
-            Transform t = ImportObject(gameFolder, smdPath2);
-            t.Rotate(90, 0, 0);
-            importFolder = Path.GetDirectoryName(smdPath);
+            string smdPath = EditorUtility.OpenFilePanel("Import smd", importFolder, "sm,fmt,ao,tgt,mat");
+            if(smdPath != "") {
+                string smdPath2 = smdPath.Substring(gameFolder.Length + 1);
+                Transform t = ImportObject(gameFolder, smdPath2);
+                t.Rotate(90, 0, 0);
+                importFolder = Path.GetDirectoryName(smdPath);
+            }
         } else if (importDirectory) {
             importDirectory = false;
             string dirpath = EditorUtility.OpenFolderPanel("Import directory", importFolder, "");
-            ImportTiles(gameFolder, dirpath);
+            if(dirpath != "") {
+                ImportTiles(gameFolder, dirpath);
 
-            float xPos = 0;
-            foreach (string fmt in Directory.EnumerateFiles(dirpath, "*.fmt", SearchOption.AllDirectories)) {
-                string filePath = fmt.Substring(gameFolder.Length + 1);
-                Transform t = ImportFixedMesh(gameFolder, filePath, true);
-                float xMin = t.position.x;
-                float xMax = t.position.y;
-                t.localPosition = Vector3.right * (xPos - xMin);
-                xPos = xPos - xMin + xMax + 5;
-                t.Rotate(90, 0, 0);
+                float xPos = 0;
+                foreach (string fmt in Directory.EnumerateFiles(dirpath, "*.fmt", SearchOption.AllDirectories)) {
+                    string filePath = fmt.Substring(gameFolder.Length + 1);
+                    Transform t = ImportFixedMesh(gameFolder, filePath, true);
+                    float xMin = t.position.x;
+                    float xMax = t.position.y;
+                    t.localPosition = Vector3.right * (xPos - xMin);
+                    xPos = xPos - xMin + xMax + 5;
+                    t.Rotate(90, 0, 0);
+                }
+                foreach (string fmt in Directory.EnumerateFiles(dirpath, "*.sm", SearchOption.AllDirectories)) {
+                    string filePath = fmt.Substring(gameFolder.Length + 1);
+                    Transform t = ImportSkinnedMesh(gameFolder, filePath, true);
+                    float xMin = t.position.x;
+                    float xMax = t.position.y;
+                    t.localPosition = Vector3.right * (xPos - xMin);
+                    xPos = xPos - xMin + xMax + 5;
+                    t.Rotate(90, 0, 0);
+                }
+                importFolder = dirpath;
             }
-            foreach (string fmt in Directory.EnumerateFiles(dirpath, "*.sm", SearchOption.AllDirectories)) {
-                string filePath = fmt.Substring(gameFolder.Length + 1);
-                Transform t = ImportSkinnedMesh(gameFolder, filePath, true);
-                float xMin = t.position.x;
-                float xMax = t.position.y;
-                t.localPosition = Vector3.right * (xPos - xMin);
-                xPos = xPos - xMin + xMax + 5;
-                t.Rotate(90, 0, 0);
-            }
-            importFolder = dirpath;
         } else if (importMonster) {
             importMonster = false;
             RenderMonsterIdle(importMonsterIdx);
@@ -140,11 +144,14 @@ public class Importer : MonoBehaviour {
             return ImportSkinnedMesh(gamePath, path);
         } else if (extension == ".tgt") {
             return ImportTile(gamePath, path);
+        } else if (extension == ".mat") {
+            return CreateMaterialCube(gamePath, path);
         } else {
             Debug.LogError("MESH EXTENSION NOT SUPPORTED FOR " + path);
         }
         return null;
     }
+
 
     void ImportTiles(string gamePath, string folder) {
         float xPos = 0;
@@ -248,6 +255,15 @@ public class Importer : MonoBehaviour {
         materialRefCounts[mat] = 0;
         materialList.Add(mat);
         return mat;
+    }
+
+    Transform CreateMaterialCube(string gamePath, string path) {
+        GameObject unityObj = Instantiate<GameObject>(Resources.Load<GameObject>("Cube"));
+        unityObj.name = path;
+        Material mat = ImportMaterial(gamePath, path);
+        unityObj.GetComponent<MeshRenderer>().sharedMaterial = mat;
+        unityObj.AddComponent<AssetCounterComponent>().SetMaterials(this, new Material[] { mat });
+        return unityObj.transform;
     }
 
     Transform ImportFixedMesh(string gamePath, string path, bool shiftX = false) {
