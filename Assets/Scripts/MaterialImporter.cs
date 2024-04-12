@@ -23,7 +23,8 @@ public static class MaterialImporter {
         {"Metadata/Materials/SpecGlossSpecMaskOpaqueBN.fxgraph" ,"Shader Graphs/SpecGlossSpecMaskOpaque"},
         {"Metadata/Materials/SpecGlossSpecMask.fxgraph" ,"Shader Graphs/SpecGlossSpecMask"},
         {"Metadata/Materials/SpecGloss.fxgraph", "Shader Graphs/SpecGloss" },
-        {"Metadata/Materials/AnisotropicSpecGloss.fxgraph", "Shader Graphs/SpecGloss" }
+        {"Metadata/Materials/AnisotropicSpecGloss.fxgraph", "Shader Graphs/SpecGloss" },
+        {"Metadata/Materials/Ground/PBRGroundBN.fxgraph", "Shader Graphs/PBRGroundBN" }
     };
 
     public static Material Import(string gamePath, string path) {

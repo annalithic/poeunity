@@ -77,7 +77,7 @@ public class Importer : MonoBehaviour {
             string smdPath = EditorUtility.OpenFilePanel("Import smd", importFolder, "sm,fmt,ao,tgt,mat");
             if(smdPath != "") {
                 string smdPath2 = smdPath.Substring(gameFolder.Length + 1);
-                Transform t = ImportObject(gameFolder, smdPath2);
+                Transform t = ImportObject(gameFolder, smdPath2, true);
                 t.Rotate(90, 0, 0);
                 importFolder = Path.GetDirectoryName(smdPath);
             }
@@ -124,11 +124,15 @@ public class Importer : MonoBehaviour {
         }
 
     }
-    
-    Transform ImportObject(string gamePath, string path) {
+
+
+
+    Transform ImportObject(string gamePath, string path, bool root = false) {
         Debug.Log("IMPORTING OBJECT " + path);
         string extension = Path.GetExtension(path);
         if (extension == ".ao") {
+            return ImportAnimatedObject(gamePath, path, root);
+            /*
             Debug.LogWarning("READING AOC " + Path.Combine(gamePath, path + "c"));
             PoeTextFile aoc = new PoeTextFile(gamePath, path + "c");
             if (aoc.TryGet("FixedMesh", "fixed_mesh", out string fixedMesh)) {
@@ -138,6 +142,7 @@ public class Importer : MonoBehaviour {
             } else {
                 Debug.LogError($"AOC {path} HAS NO mesh");
             }
+            */
         } else if (extension == ".fmt") {
             return ImportFixedMesh(gamePath, path);
         } else if (extension == ".sm") {
@@ -150,6 +155,71 @@ public class Importer : MonoBehaviour {
             Debug.LogError("MESH EXTENSION NOT SUPPORTED FOR " + path);
         }
         return null;
+    }
+
+    Transform ImportAnimatedObject(string gamePath, string path, bool lineOfAnimations = false) {
+        PoeTextFile ao = new PoeTextFile(gamePath, path);
+        PoeTextFile aoc = new PoeTextFile(gamePath, path + "c");
+
+        string astPath = aoc.Get("ClientAnimationController", "skeleton");
+        string smPath = aoc.Get("SkinMesh", "skin");
+
+        if(smPath == null) {
+            return null;
+        }
+        if (astPath == null) {
+            return ImportSkinnedMesh(gamePath, smPath);
+        }
+
+        Ast ast = new Ast(Path.Combine(gameFolder, astPath));
+        Sm sm = new Sm(gamePath, smPath);
+
+
+
+        Smd smd = new Smd(gameFolder, sm.smd);
+        Mesh mesh = ImportMesh(smd.model.meshes[0], Path.GetFileName(path), true);
+
+        Material[] materials = new Material[sm.materials.Length];
+        List<Material> materialIndices = new List<Material>();
+
+        for (int i = 0; i < materials.Length; i++) {
+            Material unityMat = ImportMaterial(gameFolder, sm.materials[i]);
+            for (int j = 0; j < sm.materialCounts[i]; j++) {
+                materialIndices.Add(unityMat);
+            }
+        }
+
+        //GameObject r_weapon
+
+        Dictionary<string, Transform> bones = new Dictionary<string, Transform>();
+
+        //NOT ROOT?
+        Transform t = null;
+        int animationCount = lineOfAnimations ? ast.animations.Length : 1;
+        for(int i = 0; i < animationCount; i++) {
+            Transform importedTransform = ImportAnimation(mesh, ast, i, Vector3.right * ((smd.bbox.SizeX + 50) * i ), null, null, materialIndices.ToArray(), bones);
+
+            foreach (var tuple in aoc.AocGetSockets()) {
+                bones[tuple.Item1] = bones[tuple.Item2];
+            }
+
+
+            foreach (string attachText in ao.GetList("AttachedAnimatedObject", "attached_object")) {
+                string[] attachWords = attachText.Split(' ');
+                Transform attachment = ImportObject(gameFolder, attachWords[1]);
+                if (attachment == null) continue;
+                if (attachWords[0] == "<root>") attachment.SetParent(importedTransform, false);
+                else if (bones.ContainsKey(attachWords[0])) attachment.SetParent(bones[attachWords[0]], false);
+                else Debug.LogError("MONSTER MISSING BONE " + attachWords[0] + " FOR ATTACHMENT " + attachWords[1]);
+            }
+
+
+            //TODO JANK!!!!!!!!!!!!!!!!
+            importedTransform.GetComponent<AnimationComponent>().SetAttachmentData();
+            if (t == null) t = importedTransform;
+            if (i != 0) importedTransform.Rotate(90, 0, 0);
+        }
+        return t;
     }
 
 
@@ -385,8 +455,9 @@ public class Importer : MonoBehaviour {
 
                     //NOT ROOT?
                     Transform importedTransform = ImportAnimation(mesh, ast, animationIndex, Vector3.zero, null, words[1].Replace('/', '_') + '_' + importMonsterAction, materialIndices.ToArray(), bones);
+                    importedTransform.Rotate(90, 0, 0);
 
-                    foreach(var tuple in aoc.AocGetSockets()) {
+                    foreach (var tuple in aoc.AocGetSockets()) {
                         bones[tuple.Item1] = bones[tuple.Item2];
                     }
 
@@ -473,7 +544,7 @@ public class Importer : MonoBehaviour {
         newObj.AddComponent<AnimationComponent>().SetData(bones, renderer, ast.animations[animation], screenName, renderSize, screenSize, crf);
 
         newObj.transform.Translate(pos);
-        newObj.transform.Rotate(new Vector3(90, 0, 0));
+        //newObj.transform.Rotate(new Vector3(90, 0, 0));
         if(parent != null) newObj.transform.SetParent(parent);
         return newObj.transform;
     }
@@ -486,7 +557,8 @@ public class Importer : MonoBehaviour {
         //Debug.Log(ast.animations.Length);
 
         for (int i = 0; i < ast.animations.Length; i++) {
-            ImportAnimation(smd, ast, i, Vector3.right * 200 * i, parent);
+            Transform t = ImportAnimation(smd, ast, i, Vector3.right * 200 * i, parent);
+            t.Rotate(90, 0, 0);
             //break;
         }
     }

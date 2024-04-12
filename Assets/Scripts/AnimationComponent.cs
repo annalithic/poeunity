@@ -143,6 +143,8 @@ public class AnimationComponent : MonoBehaviour
             frames = new List<Texture2DVideoFrame>();
 
 
+        } else {
+            speed = 30f;
         }
 
     }
