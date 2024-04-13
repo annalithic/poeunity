@@ -33,10 +33,8 @@ public class AnimationComponent : MonoBehaviour
 
     SkinnedMeshRenderer renderer;
 
-    [SerializeField]
     Transform[] bones;
 
-    [SerializeField]
     List<KeySet> keySets;
 
     [SerializeField]

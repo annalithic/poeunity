@@ -113,9 +113,10 @@ public class Importer : MonoBehaviour {
             RenderMonsterIdle(importMonsterIdx);
         } else if (importSmdAst) {
             importSmdAst = false;
-            string smdPath = EditorUtility.OpenFilePanel("Import smd", @"F:\Extracted\PathOfExile\3.22.Ancestor\monsters\genericbiped\bipedmedium\modelvariants", "smd");
+            string smPath = EditorUtility.OpenFilePanel("Import smd", @"F:\Extracted\PathOfExile\3.22.Ancestor\monsters\genericbiped\bipedmedium\modelvariants", "sm");
             string astPath = EditorUtility.OpenFilePanel("Import ast", @"F:\Extracted\PathOfExile\3.22.Ancestor\monsters\genericbiped\bipedmedium\animations", "ast");
-            ImportSmdAnimations(smdPath, astPath, Path.GetFileName(astPath));
+            ImportSmAnimations(gameFolder, smPath, astPath);
+            //ImportSmdAnimations(smdPath, astPath, Path.GetFileName(astPath));
         } else if (listRefCounts) {
             listRefCounts = false;
             foreach (Material mat in materialRefCounts.Keys) {
@@ -174,8 +175,6 @@ public class Importer : MonoBehaviour {
         Ast ast = new Ast(Path.Combine(gameFolder, astPath));
         Sm sm = new Sm(gamePath, smPath);
 
-
-
         Smd smd = new Smd(gameFolder, sm.smd);
         Mesh mesh = ImportMesh(smd.model.meshes[0], Path.GetFileName(path), true);
 
@@ -188,8 +187,6 @@ public class Importer : MonoBehaviour {
                 materialIndices.Add(unityMat);
             }
         }
-
-        //GameObject r_weapon
 
         Dictionary<string, Transform> bones = new Dictionary<string, Transform>();
 
@@ -218,6 +215,42 @@ public class Importer : MonoBehaviour {
             importedTransform.GetComponent<AnimationComponent>().SetAttachmentData();
             if (t == null) t = importedTransform;
             if (i != 0) importedTransform.Rotate(90, 0, 0);
+        }
+        return t;
+    }
+
+    Transform ImportSmAnimations(string gamePath, string smPath, string astPath) {
+        smPath = smPath.Substring(gamePath.Length + 1);
+        astPath = astPath.Substring(gamePath.Length + 1);
+
+        Ast ast = new Ast(Path.Combine(gameFolder, astPath));
+        Sm sm = new Sm(gamePath, smPath);
+
+        Smd smd = new Smd(gameFolder, sm.smd);
+        Mesh mesh = ImportMesh(smd.model.meshes[0], Path.GetFileName(smPath), true);
+
+        Material[] materials = new Material[sm.materials.Length];
+        List<Material> materialIndices = new List<Material>();
+
+        for (int i = 0; i < materials.Length; i++) {
+            Material unityMat = ImportMaterial(gameFolder, sm.materials[i]);
+            for (int j = 0; j < sm.materialCounts[i]; j++) {
+                materialIndices.Add(unityMat);
+            }
+        }
+
+        Dictionary<string, Transform> bones = new Dictionary<string, Transform>();
+
+        //NOT ROOT?
+        Transform t = null;
+        int animationCount = ast.animations.Length;
+        for (int i = 0; i < animationCount; i++) {
+            Transform importedTransform = ImportAnimation(mesh, ast, i, Vector3.right * ((smd.bbox.SizeX + 50) * i), null, null, materialIndices.ToArray(), bones);
+
+            //TODO JANK!!!!!!!!!!!!!!!!
+            importedTransform.GetComponent<AnimationComponent>().SetAttachmentData();
+            if (t == null) t = importedTransform;
+            importedTransform.Rotate(90, 0, 0);
         }
         return t;
     }
@@ -547,20 +580,6 @@ public class Importer : MonoBehaviour {
         //newObj.transform.Rotate(new Vector3(90, 0, 0));
         if(parent != null) newObj.transform.SetParent(parent);
         return newObj.transform;
-    }
-
-    void ImportSmdAnimations(string smdPath, string astPath, string name) {
-        Transform parent = new GameObject(name).transform;
-        Mesh smd = ImportSmd(smdPath);
-        //Debug.Log(smd.vertices.Length);
-        Ast ast = new Ast(astPath);
-        //Debug.Log(ast.animations.Length);
-
-        for (int i = 0; i < ast.animations.Length; i++) {
-            Transform t = ImportAnimation(smd, ast, i, Vector3.right * 200 * i, parent);
-            t.Rotate(90, 0, 0);
-            //break;
-        }
     }
 
     Vector3 TranslationFromMatrix(float[] transform) {
