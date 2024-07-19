@@ -5,6 +5,7 @@ using System.IO;
 using System.Collections.Generic;
 using UnityDds;
 using System;
+using System.Linq;
 
 [ExecuteInEditMode]
 public class Importer : MonoBehaviour {
@@ -276,8 +277,10 @@ public class Importer : MonoBehaviour {
         GameObject tile = new GameObject();
         tile.name = Path.GetFileNameWithoutExtension(path);
         List<Mesh> meshes = new List<Mesh>();
-        List<Material> materials = new List<Material>();
-        List<CombineInstance> combines = new List<CombineInstance>();
+        Dictionary<string, Material> materials = new Dictionary<string, Material>();
+        Dictionary<string, List<CombineInstance>> combines = new Dictionary<string, List<CombineInstance>>();
+        //List<Material> materials = new List<Material>();
+        //List<CombineInstance> combines = new List<CombineInstance>();
         for(int y = 0; y < tgt.sizeY; y++) {
             for(int x = 0; x < tgt.sizeX; x++) {    
                 Debug.Log(tgt.GetTgmPath(x, y));
@@ -290,17 +293,29 @@ public class Importer : MonoBehaviour {
                     Mesh mesh = ImportMesh(tgm.model.meshes[0], $"meshName_{x}_{y}", true, tgt.GetCombinedShapeLengths(x, y));
 
                     if(mesh != null) {
+
+                        var submeshMaterials = tgt.GetSubtileMaterialsCombined(x, y);
                         for (int i = 0; i < mesh.subMeshCount; i++) {
-                            combines.Add(new CombineInstance() { mesh = mesh, transform = Matrix4x4.Translate(new Vector3(x * 250, y * -250, 0)), subMeshIndex = i });
+                            string submeshMat = submeshMaterials[i];
+                            if(!combines.ContainsKey(submeshMat)) {
+                                combines[submeshMat] = new List<CombineInstance>();
+                                materials[submeshMat] = (ImportMaterial(gamePath, submeshMat));
+                            }
+                            combines[submeshMat].Add(new CombineInstance() { mesh = mesh, transform = Matrix4x4.Translate(new Vector3(x * 250, y * -250, 0)), subMeshIndex = i });
                         }
 
-                        var materialNames = tgt.GetSubtileMaterialsCombined(x, y);
+
+                        //for (int i = 0; i < mesh.subMeshCount; i++) {
+                        //    combines.Add(new CombineInstance() { mesh = mesh, transform = Matrix4x4.Translate(new Vector3(x * 250, y * -250, 0)), subMeshIndex = i });
+                        //}
+
+                        //var materialNames = tgt.GetSubtileMaterialsCombined(x, y);
                         //Material[] sharedmaterials = new Material[materialNames.Length];
-                        for (int i = 0; i < materialNames.Length; i++) {
-                            materials.Add(ImportMaterial(gamePath, materialNames[i]));
+                        //for (int i = 0; i < materialNames.Length; i++) {
+                        //    materials.Add(ImportMaterial(gamePath, materialNames[i]));
 
                             //sharedmaterials[i] = ImportMaterial(gamePath, materialNames[i]);
-                        }
+                        //}
                         //subtile.AddComponent<AssetCounterComponent>().SetMaterials(this, sharedmaterials);
                         //MeshFilter filter = subtile.AddComponent<MeshFilter>();
                         //filter.sharedMesh = mesh;
@@ -310,18 +325,31 @@ public class Importer : MonoBehaviour {
                 }
             }
         }
-        Mesh combinedMesh = new Mesh();
-        combinedMesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-        combinedMesh.CombineMeshes(combines.ToArray(), false, true, false);
+        var materialNames = combines.Keys.ToArray();
+        Array.Sort(materialNames);
+        foreach (string material in materialNames) {
+            Material m = materials[material];
 
-        MeshFilter filter = tile.AddComponent<MeshFilter>();
-        filter.sharedMesh = combinedMesh;
+            GameObject materialObj = new GameObject(m.name);
+            materialObj.transform.SetParent(tile.transform);
 
-        MeshRenderer renderer = tile.AddComponent<MeshRenderer>();
-        var sharedMaterials = materials.ToArray();
-        renderer.sharedMaterials = sharedMaterials;
-        tile.AddComponent<AssetCounterComponent>().SetMaterials(this, sharedMaterials);
+            Mesh combinedMesh = new Mesh();
+            combinedMesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+            combinedMesh.CombineMeshes(combines[material].ToArray(), true, true, false);
 
+            MeshFilter filter = materialObj.AddComponent<MeshFilter>();
+            filter.sharedMesh = combinedMesh;
+
+            MeshRenderer renderer = materialObj.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = m;
+
+            //TODO THIS NEEDS TO HAPPEN FOR SHARED MATERIALS
+
+
+        }
+
+        
+        tile.AddComponent<AssetCounterComponent>().SetMaterials(this, materials.Values.ToArray());
 
         tile.transform.localPosition = Vector3.right * (tgt.sizeX * 250 + xPos);
         return tile.transform;
