@@ -17,14 +17,7 @@ public class Importer : MonoBehaviour {
     public bool importDirectory;
     public bool importSmdAst;
 
-    [Header("Monster")]
-    public int importMonsterIdx;
-    public string importMonsterId;
-    public string importMonsterName;
-    public bool decrementMonsterIdx;
-    public bool incrementMonsterIdx;
-    public string importMonsterAction;
-    public bool importMonster;
+
 
     [Header("Screenshot")]
     public int renderSize;
@@ -47,6 +40,14 @@ public class Importer : MonoBehaviour {
     Dictionary<int, string> monsterIds;
     Dictionary<int, string> monsterNames;
 
+    [Header("Monster")]
+    public int importMonsterIdx;
+    public string importMonsterId;
+    public string importMonsterName;
+    public bool decrementMonsterIdx;
+    public bool incrementMonsterIdx;
+    public string importMonsterAction;
+    public bool importMonster;
 
     // Update is called once per frame
     void Update() {
@@ -61,7 +62,7 @@ public class Importer : MonoBehaviour {
         if(monsterIds == null) {
             monsterNames = new Dictionary<int, string>();
             monsterIds = new Dictionary<int, string>();
-            foreach(string line in File.ReadAllLines(@"E:\A\A\Visual Studio\Archbestiary\bin\Debug\net6.0\monsterart.txt")) {
+            foreach(string line in File.ReadAllLines(@"E:\Projects\PoeUnity\monsterart.txt")) {
                 string[] split = line.Split('@');
                 if (split.Length < 4) continue;
                 monsterNames[int.Parse(split[0])] = split[2];
@@ -159,43 +160,95 @@ public class Importer : MonoBehaviour {
         return null;
     }
 
+
     Transform ImportAnimatedObject(string gamePath, string path, bool lineOfAnimations = false) {
         PoeTextFile ao = new PoeTextFile(gamePath, path);
         PoeTextFile aoc = new PoeTextFile(gamePath, path + "c");
 
-        string astPath = aoc.Get("ClientAnimationController", "skeleton");
-        string smPath = aoc.Get("SkinMesh", "skin");
+        string skinPath = null;
+        Dictionary<string, string> materialOverrides = new Dictionary<string, string>();
 
-        if(smPath == null) {
+        PoeTextFile.Block skin = aoc.GetBlock("SkinMesh");
+        for(int i = 0; i < skin.keys.Count; i++) {
+            string key = skin.keys[i];
+            string value = skin.values[i];
+            switch(key) {
+                case "skin":
+                    //if(skinPath == null) 
+                        skinPath = value;
+                    break;
+                case "alias":
+                case "hide_colliders":
+                case "hide_parent_segments":
+                case "hide_segments":
+                case "remove_skin":
+                    break;
+                default:
+                    string[] shapes = key.Split('|');
+                    if(value.EndsWith(":0")) value = value.Substring(0, value.Length - 2);
+                    foreach (string shape in shapes) {
+                        Debug.Log($"AOC HAS MATERIAL OVERRIDE {shape} : {value}");
+                        materialOverrides[shape] = value;
+                    }
+                    break;
+            }
+        }
+
+        string astPath = aoc.Get("ClientAnimationController", "skeleton");
+        //string smPath = aoc.GetFirst("SkinMesh", "skin");
+
+        if(skinPath == null) {
             return null;
         }
         if (astPath == null) {
-            return ImportSkinnedMesh(gamePath, smPath);
+            return ImportSkinnedMesh(gamePath, skinPath);
         }
 
         Ast ast = new Ast(Path.Combine(gameFolder, astPath));
-        Sm sm = new Sm(gamePath, smPath);
+        Debug.Log($"IMPORTING SM {skinPath}");
+        Sm sm = new Sm(gamePath, skinPath);
 
+        Debug.Log($"IMPORTING SMD {sm.smd}");
         Smd smd = new Smd(gameFolder, sm.smd);
         Mesh mesh = ImportMesh(smd.model.meshes[0], Path.GetFileName(path), true);
 
-        Material[] materials = new Material[sm.materials.Length];
-        List<Material> materialIndices = new List<Material>();
 
-        for (int i = 0; i < materials.Length; i++) {
-            Material unityMat = ImportMaterial(gameFolder, sm.materials[i]);
-            for (int j = 0; j < sm.materialCounts[i]; j++) {
-                materialIndices.Add(unityMat);
+        string[] materialNames = new string[smd.model.shapeCount];
+
+        {
+            int counter = 0;
+            for (int i = 0; i < sm.materials.Length; i++) {
+                for (int j = 0; j < sm.materialCounts[i]; j++) {
+                    materialNames[counter] = sm.materials[i];
+                    counter++;
+                }
             }
         }
+        if (materialOverrides.Count > 0) {
+            for (int i = 0; i < smd.model.shapeCount; i++) {
+                string shape = smd.shapeNames[i];
+                if (materialOverrides.ContainsKey(shape)) {
+                    Debug.Log($"{shape} REPLACING MATERIAL: {materialNames[i]} -> {materialOverrides[shape]}");
+                    materialNames[i] = materialOverrides[shape];
+                }
+            }
+        }
+
+        Material[] materialIndices = new Material[materialNames.Length];
+        for(int i = 0; i < materialIndices.Length; i++) {
+            materialIndices[i] = ImportMaterial(gameFolder, materialNames[i]);
+        }
+
 
         Dictionary<string, Transform> bones = new Dictionary<string, Transform>();
 
         //NOT ROOT?
         Transform t = null;
-        int animationCount = lineOfAnimations ? ast.animations.Length : 1;
+        //TEMP TPOS PA DP
+        int animationCount = 1;
+        //int animationCount = lineOfAnimations ? ast.animations.Length : 1;
         for(int i = 0; i < animationCount; i++) {
-            Transform importedTransform = ImportAnimation(mesh, ast, i, Vector3.right * ((smd.bbox.SizeX + 50) * i ), null, null, materialIndices.ToArray(), bones);
+            Transform importedTransform = ImportAnimation(mesh, ast, i, Vector3.right * ((smd.bbox.SizeX + 50) * i ), null, null, materialIndices, bones);
 
             foreach (var tuple in aoc.AocGetSockets()) {
                 bones[tuple.Item1] = bones[tuple.Item2];
@@ -279,18 +332,19 @@ public class Importer : MonoBehaviour {
         List<Mesh> meshes = new List<Mesh>();
         Dictionary<string, Material> materials = new Dictionary<string, Material>();
         Dictionary<string, List<CombineInstance>> combines = new Dictionary<string, List<CombineInstance>>();
+        List<CombineInstance> groundCombines = new List<CombineInstance>();
         //List<Material> materials = new List<Material>();
         //List<CombineInstance> combines = new List<CombineInstance>();
         for(int y = 0; y < tgt.sizeY; y++) {
             for(int x = 0; x < tgt.sizeX; x++) {    
                 Debug.Log(tgt.GetTgmPath(x, y));
                 Tgm tgm = tgt.GetTgm(x, y);
-                if(tgm.model.meshCount > 0) {
+                if(tgm.model.shapeCount > 0) {
                     //GameObject subtile = new GameObject($"{x}, {y}");
                     //subtile.transform.SetParent(root, false);
                     //subtile.transform.localPosition = new Vector3(x * 250, y * -250, 0);
 
-                    Mesh mesh = ImportMesh(tgm.model.meshes[0], $"meshName_{x}_{y}", true, tgt.GetCombinedShapeLengths(x, y));
+                    Mesh mesh = ImportMesh(tgm.model.meshes[0], $"{meshName}_{x}_{y}", true, tgt.GetCombinedShapeLengths(x, y));
 
                     if(mesh != null) {
 
@@ -323,6 +377,10 @@ public class Importer : MonoBehaviour {
                         //renderer.sharedMaterials = sharedmaterials;
                     }
                 }
+                if(tgm.groundModel != null && tgm.groundModel.shapeCount != 0) {
+                    Mesh mesh = ImportMesh(tgm.groundModel.meshes[0], $"ground_{x}_{y}", false);
+                    groundCombines.Add(new CombineInstance() { mesh = mesh, transform = Matrix4x4.Translate(new Vector3(x * 250, y * -250, 0)) });
+                }
             }
         }
         var materialNames = combines.Keys.ToArray();
@@ -348,7 +406,20 @@ public class Importer : MonoBehaviour {
 
         }
 
-        
+        if(groundCombines.Count != 0)
+        {
+            Mesh combinedMesh = new Mesh();
+            combinedMesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+            combinedMesh.CombineMeshes(groundCombines.ToArray(), true, true, false);
+
+            MeshFilter filter = tile.AddComponent<MeshFilter>();
+            filter.sharedMesh = combinedMesh;
+
+            MeshRenderer renderer = tile.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = Resources.Load<Material>("Ground");
+        }
+
+
         tile.AddComponent<AssetCounterComponent>().SetMaterials(this, materials.Values.ToArray());
 
         tile.transform.localPosition = Vector3.right * (tgt.sizeX * 250 + xPos);
@@ -381,6 +452,7 @@ public class Importer : MonoBehaviour {
         if(path == "") {
             return Resources.Load<Material>("Invisible");
         }
+        if (materials.ContainsKey(path)) return materials[path];
         Material mat = MaterialImporter.Import(gamePath, path);
         materials[path] = mat;
         materialRefCounts[mat] = 0;
@@ -472,7 +544,7 @@ public class Importer : MonoBehaviour {
     }
 
     void RenderMonsterIdle(int idx) {
-        using(TextReader reader = new StreamReader(File.OpenRead(@"E:\A\A\Visual Studio\Archbestiary\bin\Debug\net6.0\monsterart.txt"))) {
+        using(TextReader reader = new StreamReader(File.OpenRead(@"E:\Projects\PoeUnity\monsterart.txt"))) {
             for(int i = 0; i < idx - 1; i++) {
                 reader.ReadLine();
             }
