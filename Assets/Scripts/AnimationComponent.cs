@@ -33,8 +33,8 @@ public class AnimationComponent : MonoBehaviour
 
     SkinnedMeshRenderer renderer;
 
-    Transform[] bones;
-
+    [SerializeField]
+    [HideInInspector]
     List<KeySet> keySets;
 
     [SerializeField]
@@ -59,9 +59,8 @@ public class AnimationComponent : MonoBehaviour
 
     int crf;
 
-    public void SetData(Transform[] bones, SkinnedMeshRenderer renderer, AstAnimation animation, string screenName = null, int renderSize = 512, int screenSize = 128, int crf = 32) {
-        this.renderer = renderer;
-        this.bones = bones;
+    public void SetData(AstAnimation animation, string screenName = null, int renderSize = 512, int screenSize = 128, int crf = 32) {
+        this.renderer = gameObject.GetComponent<SkinnedMeshRenderer>();
         this.crf = crf;
         maxTime = animation.tracks[0].positionKeys[animation.tracks[0].positionKeys.Length - 1][0];
 
@@ -84,7 +83,7 @@ public class AnimationComponent : MonoBehaviour
             
             Insert:;
 
-            keySets[keysetToAddBoneTo].positionBones.Add(bones[bone]);
+            keySets[keysetToAddBoneTo].positionBones.Add(renderer.bones[bone]);
             for (int frame = 0; frame < keySets[keysetToAddBoneTo].positions.Length; frame++) {
                 keySets[keysetToAddBoneTo].positions[frame].positions.Add(new Vector3(
                     animation.tracks[bone].positionKeys[frame][1],
@@ -111,7 +110,7 @@ public class AnimationComponent : MonoBehaviour
 
         Insert:;
 
-            keySets[keysetToAddBoneTo].rotationBones.Add(bones[bone]);
+            keySets[keysetToAddBoneTo].rotationBones.Add(renderer.bones[bone]);
             //Debug.Log($"{keysetToAddBoneTo} {keySets.Count} {keySets[keysetToAddBoneTo].rotations.Length} {animation.tracks[bone].rotationKeys.Length}");
 
             for (int frame = 0; frame < keySets[keysetToAddBoneTo].rotations.Length; frame++) {
