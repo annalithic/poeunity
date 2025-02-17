@@ -12,6 +12,7 @@ public static class MaterialImporter {
         "Metadata/Effects/Graphs/General/FurV3.fxgraph",
         "Metadata/Effects/Graphs/General/FurSecondPass.fxgraph",
         "Metadata/Effects/Graphs/General/ForceOpaqueShadowOnly.fxgraph",
+        "Metadata/Art/Textures/masks/transparentobjectsc.fxgraph"
     };
 
     static Dictionary<string, string> shaderGraphs = new Dictionary<string, string> {
@@ -48,7 +49,7 @@ public static class MaterialImporter {
                         graphMaterial.SetFloat("_" + paramName, parameter.value);
                     }
                 }
-                graphMaterial.name = "G " + GetMaterialName(path);
+                graphMaterial.name = GetMaterialName(path);
                 return graphMaterial;
             } else if (graphInstance.baseTex != null && tex == null) {
                 tex = graphInstance.baseTex;

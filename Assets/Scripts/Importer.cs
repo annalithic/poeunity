@@ -14,6 +14,7 @@ public class Importer : MonoBehaviour {
     public string importFolder = @"E:\Extracted\PathOfExile\3.21.Crucible";
     public bool importObject;
     public bool importDirectory;
+    public bool importDirectoryMaterials;
     public bool importSmdAst;
 
 
@@ -73,11 +74,11 @@ public class Importer : MonoBehaviour {
 
         if (importObject) {
             importObject = false;
-            string smdPath = EditorUtility.OpenFilePanel("Import smd", importFolder, "sm,fmt,ao,tgt,mat");
+            string smdPath = EditorUtility.OpenFilePanel("Import smd", importFolder, "sm,fmt,ao,tgt,mat,tsi");
             if (smdPath != "") {
                 string smdPath2 = smdPath.Substring(gameFolder.Length + 1);
                 Transform t = ImportObject(gameFolder, smdPath2, true);
-                t.Rotate(90, 0, 0);
+                if (t != null) t.Rotate(90, 0, 0);
                 importFolder = Path.GetDirectoryName(smdPath);
             }
         } else if (importDirectory) {
@@ -104,6 +105,19 @@ public class Importer : MonoBehaviour {
                     t.localPosition = Vector3.right * (xPos - xMin);
                     xPos = xPos - xMin + xMax + 5;
                     t.Rotate(90, 0, 0);
+                }
+                importFolder = dirpath;
+            }
+        } else if (importDirectoryMaterials) {
+            importDirectoryMaterials = false;
+            string dirpath = EditorUtility.OpenFolderPanel("Import directory", importFolder, "");
+            if (dirpath != "") {
+                int i = 0;
+                foreach (string mat in Directory.EnumerateFiles(dirpath, "*.mat", SearchOption.AllDirectories)) {
+                    string filePath = mat.Substring(gameFolder.Length + 1);
+                    Transform t = CreateMaterialCube(gameFolder, filePath);
+                    t.localPosition = Vector3.right * (256 * i);
+                    i++;
                 }
                 importFolder = dirpath;
             }
@@ -145,12 +159,28 @@ public class Importer : MonoBehaviour {
             return ImportTile(gamePath, path);
         } else if (extension == ".mat") {
             return CreateMaterialCube(gamePath, path);
+        } else if (extension == ".tsi") {
+            ImportTileset(gamePath, path);
         } else {
             Debug.LogError("MESH EXTENSION NOT SUPPORTED FOR " + path);
         }
         return null;
     }
 
+    void ImportTileset(string gamePath, string tsiPath) {
+        string fullTsiPath = Path.Combine(gamePath, tsiPath);
+        Tsi tsi = new Tsi(fullTsiPath);
+        if(tsi.tileSet == null) {
+            Debug.LogError(tsiPath + " has no tileset file");
+            return;
+        }
+
+        Dictionary<string, string> materialOverrides = tsi.GetMaterialOverrides();
+        var tileGeometries = tsi.GetTileGeometries(gamePath);
+
+
+        ImportTiles(gamePath, tileGeometries, false, materialOverrides);
+    }
 
     Transform ImportAnimatedObject(string gamePath, string path, string animation = null, Transform r_weapon = null, Transform l_weapon = null) {
         PoeTextFile ao = new PoeTextFile(gamePath, path);
@@ -402,38 +432,51 @@ public class Importer : MonoBehaviour {
     }
 
 
+
+
     void ImportTiles(string gamePath, string folder) {
+        ImportTiles(gamePath, Directory.EnumerateFiles(folder, "*.tgt"), true);
+    }
+
+    void ImportTiles(string gamePath, IEnumerable<string> tiles, bool stripGamePath = false, Dictionary<string, string> materialOverrides = null) {
         float xPos = 0;
-        foreach(string path in Directory.EnumerateFiles(folder, "*.tgt")) {
-            string filePath = path.Substring(gameFolder.Length + 1);
-            Transform t = ImportTile(gamePath, filePath, 0);
+        foreach (string path in tiles) {
+            string filePath = stripGamePath ? path.Substring(gameFolder.Length + 1) : path;
+            Transform t = ImportTile(gamePath, filePath, 0, materialOverrides);
             float newPos = xPos + t.position.x;
             t.localPosition = Vector3.right * xPos;
             xPos = newPos;
             t.Rotate(90, 0, 0);
         }
+
     }
 
 
-    Transform ImportTile(string gamePath, string path, float xPos = 0) {
+    Transform ImportTile(string gamePath, string path, float xPos = 0, Dictionary<string, string> materialOverrides = null) {
         Tgt tgt = new Tgt(gamePath, path);
         //Debug.Log($"SIZE {tgt.sizeX}x{tgt.sizeY}");
         string meshName = Path.GetFileNameWithoutExtension(path);
         GameObject tile = new GameObject();
-        tile.name = Path.GetFileNameWithoutExtension(path);
+        tile.name = path;
+        if (tile.name.StartsWith("Art/Models/Terrain/")) tile.name = tile.name.Substring("Art/Models/Terrain/".Length);
         List<Mesh> meshes = new List<Mesh>();
         Dictionary<string, Material> materials = new Dictionary<string, Material>();
         Dictionary<string, List<CombineInstance>> combines = new Dictionary<string, List<CombineInstance>>();
         List<CombineInstance> groundCombines = new List<CombineInstance>();
         for(int y = 0; y < tgt.sizeY; y++) {
             for(int x = 0; x < tgt.sizeX; x++) {    
-                Debug.Log(tgt.GetTgmPath(x, y));
+                //Debug.Log(tgt.GetTgmPath(x, y));
                 Tgm tgm = tgt.GetTgm(x, y);
                 if(tgm.model.shapeCount > 0) {
                     Mesh mesh = ImportMesh(tgm.model.meshes[0], $"{meshName}_{x}_{y}", true, tgt.GetCombinedShapeLengths(x, y));
 
                     if(mesh != null) {
                         var submeshMaterials = tgt.GetSubtileMaterialsCombined(x, y);
+                        if(materialOverrides != null) {
+                            for (int i = 0; i < submeshMaterials.Length; i++) {
+                                if (materialOverrides.ContainsKey(submeshMaterials[i])) submeshMaterials[i] = materialOverrides[submeshMaterials[i]];
+                            }
+                        }
                         for (int i = 0; i < mesh.subMeshCount; i++) {
                             string submeshMat = submeshMaterials[i];
                             if(!combines.ContainsKey(submeshMat)) {
